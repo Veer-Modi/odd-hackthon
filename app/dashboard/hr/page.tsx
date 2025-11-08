@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
   Users, UserPlus, Calendar, Clock, FileText, Bell, LogOut,
-  CheckCircle, XCircle, AlertCircle, TrendingUp, Building2, Search, Loader2
+  CheckCircle, XCircle, AlertCircle, TrendingUp, Building2, Search, Loader2, MapPin, Power, PowerOff
 } from 'lucide-react';
 
 export default function HRDashboardPage() {
@@ -29,6 +29,16 @@ export default function HRDashboardPage() {
   const [passwordRequests, setPasswordRequests] = useState<any[]>([]);
   const [processingLeaveId, setProcessingLeaveId] = useState<number | null>(null);
   const [processingAction, setProcessingAction] = useState<'approve' | 'reject' | null>(null);
+  const [todayAttendance, setTodayAttendance] = useState<any>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [location, setLocation] = useState<string>('');
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchNotifications = async (token: string) => {
     try {
@@ -41,6 +51,94 @@ export default function HRDashboardPage() {
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
+    }
+  };
+
+  const handleCheckIn = async () => {
+    setCheckingIn(true);
+    const token = localStorage.getItem('token');
+
+    try {
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      let locationName = 'Office';
+
+      if (navigator.geolocation) {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject);
+        });
+        latitude = position.coords.latitude;
+        longitude = position.coords.longitude;
+        locationName = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      }
+
+      const response = await fetch('/api/attendance/checkin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ latitude, longitude, location: locationName }),
+      });
+
+      if (response.ok) {
+        const todayRes = await fetch('/api/attendance/today', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (todayRes.ok) setTodayAttendance(await todayRes.json());
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Check-in failed');
+      }
+    } catch (error) {
+      console.error('Check-in error:', error);
+      alert('Failed to check in. Please try again.');
+    } finally {
+      setCheckingIn(false);
+    }
+  };
+
+  const handleCheckOut = async () => {
+    setCheckingOut(true);
+    const token = localStorage.getItem('token');
+
+    try {
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      let locationName = 'Office';
+
+      if (navigator.geolocation) {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject);
+        });
+        latitude = position.coords.latitude;
+        longitude = position.coords.longitude;
+        locationName = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      }
+
+      const response = await fetch('/api/attendance/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ latitude, longitude, location: locationName }),
+      });
+
+      if (response.ok) {
+        const todayRes = await fetch('/api/attendance/today', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (todayRes.ok) setTodayAttendance(await todayRes.json());
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Check-out failed');
+      }
+    } catch (error) {
+      console.error('Check-out error:', error);
+      alert('Failed to check out. Please try again.');
+    } finally {
+      setCheckingOut(false);
     }
   };
 
@@ -120,6 +218,24 @@ export default function HRDashboardPage() {
           fetchNotifications(token),
           fetchRecentEmployees(token),
         ]);
+
+        const todayRes = await fetch('/api/attendance/today', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (todayRes.ok) {
+          const todayData = await todayRes.json();
+          setTodayAttendance(todayData);
+        }
+
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              setLocation(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+            },
+            () => setLocation('Location not available')
+          );
+        }
       } catch (error) {
         console.error('HR dashboard initialization error:', error);
       } finally {
@@ -304,6 +420,135 @@ export default function HRDashboardPage() {
       </header>
 
       <div className="p-6 max-w-7xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="premium-card mb-6 relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-3xl font-black text-slate-900 mb-2">Time & Attendance</h2>
+                <div className="flex items-center space-x-4 text-slate-600">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="h-5 w-5" />
+                    <span className="text-2xl font-bold">{currentTime.toLocaleTimeString()}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="h-5 w-5" />
+                    <span>{currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                className={`glass p-6 rounded-2xl border-2 ${
+                  todayAttendance?.checkedIn ? 'border-green-200 bg-green-50/50' : 'border-blue-200 bg-blue-50/50'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className={`p-3 rounded-xl ${
+                      todayAttendance?.checkedIn ? 'bg-green-500' : 'bg-blue-500'
+                    }`}>
+                      <Power className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900">Check In</h3>
+                      {todayAttendance?.checkInTime && (
+                        <p className="text-sm text-slate-600">Checked in at {todayAttendance.checkInTime}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {todayAttendance?.checkInLocation && (
+                  <div className="flex items-center space-x-2 text-sm text-slate-600 mb-4">
+                    <MapPin className="h-4 w-4" />
+                    <span>{todayAttendance.checkInLocation}</span>
+                  </div>
+                )}
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleCheckIn}
+                  disabled={todayAttendance?.checkedIn || checkingIn}
+                  className={`w-full py-4 rounded-xl font-bold text-white transition-all ${
+                    todayAttendance?.checkedIn ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg'
+                  }`}
+                >
+                  {checkingIn ? (
+                    <span className="flex items-center justify-center space-x-2">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>Checking In...</span>
+                    </span>
+                  ) : todayAttendance?.checkedIn ? (
+                    'Already Checked In'
+                  ) : (
+                    'Check In Now'
+                  )}
+                </motion.button>
+              </motion.div>
+
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                className={`glass p-6 rounded-2xl border-2 ${
+                  todayAttendance?.checkedOut ? 'border-orange-200 bg-orange-50/50' : 'border-slate-200 bg-slate-50/50'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className={`p-3 rounded-xl ${
+                      todayAttendance?.checkedOut ? 'bg-orange-500' : 'bg-slate-400'
+                    }`}>
+                      <PowerOff className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900">Check Out</h3>
+                      {todayAttendance?.checkOutTime && (
+                        <p className="text-sm text-slate-600">Checked out at {todayAttendance.checkOutTime}</p>
+                      )}
+                      {todayAttendance?.workingHours && (
+                        <p className="text-sm font-semibold text-green-600">Worked: {todayAttendance.workingHours} hrs</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {todayAttendance?.checkOutLocation && (
+                  <div className="flex items-center space-x-2 text-sm text-slate-600 mb-4">
+                    <MapPin className="h-4 w-4" />
+                    <span>{todayAttendance.checkOutLocation}</span>
+                  </div>
+                )}
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleCheckOut}
+                  disabled={!todayAttendance?.checkedIn || todayAttendance?.checkedOut || checkingOut}
+                  className={`w-full py-4 rounded-xl font-bold text-white transition-all ${
+                    !todayAttendance?.checkedIn || todayAttendance?.checkedOut ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 shadow-lg'
+                  }`}
+                >
+                  {checkingOut ? (
+                    <span className="flex items-center justify-center space-x-2">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>Checking Out...</span>
+                    </span>
+                  ) : todayAttendance?.checkedOut ? (
+                    'Already Checked Out'
+                  ) : !todayAttendance?.checkedIn ? (
+                    'Check In First'
+                  ) : (
+                    'Check Out Now'
+                  )}
+                </motion.button>
+              </motion.div>
+            </div>
+          </div>
+        </motion.div>
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <StatCard
@@ -337,7 +582,13 @@ export default function HRDashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="grid md:grid-cols-4 gap-4 mb-6">
+        <div className="grid md:grid-cols-5 gap-4 mb-6">
+          <QuickAction
+            icon={<Calendar className="h-5 w-5" />}
+            label="Apply Leave"
+            onClick={() => router.push('/leave')}
+            color="from-purple-600 to-pink-600"
+          />
           <QuickAction
             icon={<UserPlus className="h-5 w-5" />}
             label="Add Employee"

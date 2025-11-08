@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month');
     const year = searchParams.get('year');
     const payrunId = searchParams.get('payrunId');
+    const roleParam = searchParams.get('role');
 
     // Get employee ID if user is employee
     let employeeId = searchParams.get('employeeId');
@@ -34,10 +35,12 @@ export async function GET(request: NextRequest) {
 
     let query = `
       SELECT p.*, e.first_name, e.last_name, e.employee_code, e.department, e.designation,
-             pr.status as payrun_status, pr.month as payrun_month, pr.year as payrun_year
+             pr.status as payrun_status, pr.month as payrun_month, pr.year as payrun_year,
+             u.role as user_role
       FROM payroll p
       JOIN employees e ON p.employee_id = e.id
       LEFT JOIN payruns pr ON p.payrun_id = pr.id
+      LEFT JOIN users u ON e.user_id = u.id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -60,6 +63,14 @@ export async function GET(request: NextRequest) {
     if (payrunId) {
       query += ' AND p.payrun_id = ?';
       params.push(payrunId);
+    }
+
+    if (roleParam) {
+      if (payload.role !== 'admin') {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      query += ' AND u.role = ?';
+      params.push(roleParam);
     }
 
     query += ' ORDER BY p.year DESC, p.month DESC, e.first_name ASC';

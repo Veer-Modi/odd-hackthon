@@ -1,549 +1,734 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
-  DollarSign, Users, TrendingUp, Calculator, FileText, Bell, LogOut,
-  Download, CheckCircle, Clock, CreditCard, BarChart3
+  AlertCircle,
+  Calculator,
+  CheckCircle,
+  DollarSign,
+  Loader,
+  Users,
+  Clock,
+  Calendar,
+  Power,
+  PowerOff,
+  MapPin,
 } from 'lucide-react';
 
-export default function PayrollDashboardPage() {
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+const toNumber = (value: unknown): number => {
+  const parsed = Number.parseFloat(String(value ?? 0));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatCurrency = (value: number): string =>
+  `\u20B9${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+type Payrun = {
+  id: number;
+  month: number;
+  year: number;
+  status: string;
+  total_employees: number;
+  total_gross_salary: number | string;
+  total_deductions: number | string;
+  total_net_salary: number | string;
+};
+
+type PayrollRow = {
+  id: number;
+  first_name: string;
+  last_name: string;
+  employee_code: string;
+  department?: string;
+  net_salary: number | string;
+  basic_salary: number | string;
+  allowances: number | string;
+  deductions: number | string;
+  status?: string;
+};
+
+type ApprovalSummary = {
+  message: string;
+  status: string;
+  payslips?: {
+    total: number;
+    emailsSent: number;
+    emailsFailed: number;
+  };
+};
+
+export default function PayrollOfficerDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    totalPayroll: 10850000,
-    employees: 145,
-    avgSalary: 74827,
-    pendingPayroll: 12,
-    processed: 133,
-    totalDeductions: 1250000,
-    netPayable: 9600000,
-  });
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [recentPayrolls, setRecentPayrolls] = useState<any[]>([]);
-  const [pendingProcessing, setPendingProcessing] = useState<any[]>([]);
+  const [todayAttendance, setTodayAttendance] = useState<any>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [location, setLocation] = useState<string>('');
+  const [payruns, setPayruns] = useState<Payrun[]>([]);
+  const [selectedPayrunId, setSelectedPayrunId] = useState<number | null>(null);
+  const [payrollsByPayrun, setPayrollsByPayrun] = useState<Record<number, PayrollRow[]>>({});
+  const [approvingAction, setApprovingAction] = useState<'approve' | 'reject' | 'lock' | null>(null);
+  const [approvalResult, setApprovalResult] = useState<ApprovalSummary | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loadingPayrollId, setLoadingPayrollId] = useState<number | null>(null);
 
   useEffect(() => {
     const init = async () => {
-      const userData = localStorage.getItem('user');
-      if (!userData) {
-        router.push('/login');
-        return;
+      const nextId = await loadPayruns();
+      if (nextId) {
+        await ensurePayrollsLoaded(nextId);
       }
-
-      setUser(JSON.parse(userData));
-
-      // Static demo data until backend endpoints are available
-      setRecentPayrolls([
-        { employee: 'John Doe', code: 'EMP001', basicSalary: 50000, allowances: 10000, deductions: 5000, netSalary: 55000, status: 'Paid' },
-        { employee: 'Jane Smith', code: 'EMP002', basicSalary: 60000, allowances: 12000, deductions: 6000, netSalary: 66000, status: 'Paid' },
-        { employee: 'Mike Johnson', code: 'EMP003', basicSalary: 55000, allowances: 11000, deductions: 5500, netSalary: 60500, status: 'Paid' },
-      ]);
-
-      setPendingProcessing([
-        { employee: 'Sarah Williams', code: 'EMP146', department: 'IT', workingDays: 22, presentDays: 22 },
-        { employee: 'Robert Brown', code: 'EMP147', department: 'Finance', workingDays: 22, presentDays: 21 },
-      ]);
-
+      // Load today's attendance
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          const notifRes = await fetch('/api/notifications', {
-            headers: { 'Authorization': `Bearer ${token}` },
+          const todayRes = await fetch('/api/attendance/today', {
+            headers: { Authorization: `Bearer ${token}` },
           });
-          if (notifRes.ok) {
-            const notifData = await notifRes.json();
-            setNotifications(notifData);
+          if (todayRes.ok) {
+            setTodayAttendance(await todayRes.json());
           }
-        } catch (error) {
-          console.error('Failed to fetch notifications:', error);
+        } catch (err) {
+          // ignore
+        }
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const { latitude, longitude } = pos.coords;
+              setLocation(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+            },
+            () => setLocation('Location not available')
+          );
         }
       }
-
       setLoading(false);
     };
 
     init();
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const markNotificationsAsRead = async () => {
-    const unread = notifications.some((notification) => !notification.is_read);
-    if (!unread) {
+  useEffect(() => {
+    const t = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const handleCheckIn = async () => {
+    setCheckingIn(true);
+    const token = localStorage.getItem('token');
+    try {
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      let locationName = 'Office';
+      if (navigator.geolocation) {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject));
+        latitude = pos.coords.latitude;
+        longitude = pos.coords.longitude;
+        locationName = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      }
+      const res = await fetch('/api/attendance/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ latitude, longitude, location: locationName }),
+      });
+      if (res.ok) {
+        const todayRes = await fetch('/api/attendance/today', { headers: { Authorization: `Bearer ${token}` } });
+        if (todayRes.ok) setTodayAttendance(await todayRes.json());
+      } else {
+        const err = await res.json();
+        alert(err?.error || 'Check-in failed');
+      }
+    } catch (err) {
+      alert('Failed to check in. Please try again.');
+    } finally {
+      setCheckingIn(false);
+    }
+  };
+
+  const handleCheckOut = async () => {
+    setCheckingOut(true);
+    const token = localStorage.getItem('token');
+    try {
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      let locationName = 'Office';
+      if (navigator.geolocation) {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject));
+        latitude = pos.coords.latitude;
+        longitude = pos.coords.longitude;
+        locationName = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      }
+      const res = await fetch('/api/attendance/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ latitude, longitude, location: locationName }),
+      });
+      if (res.ok) {
+        const todayRes = await fetch('/api/attendance/today', { headers: { Authorization: `Bearer ${token}` } });
+        if (todayRes.ok) setTodayAttendance(await todayRes.json());
+      } else {
+        const err = await res.json();
+        alert(err?.error || 'Check-out failed');
+      }
+    } catch (err) {
+      alert('Failed to check out. Please try again.');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  const loadPayruns = async (preferredId?: number | null): Promise<number | null> => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.push('/login');
+      return null;
+    }
+
+    try {
+      const response = await fetch('/api/payroll/payrun', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Unable to load payruns.');
+      }
+
+      const data: Payrun[] = await response.json();
+      setPayruns(data);
+
+      if (data.length === 0) {
+        setSelectedPayrunId(null);
+        setErrorMessage(null);
+        return null;
+      }
+
+      let nextId = preferredId ?? selectedPayrunId ?? null;
+      if (!nextId || !data.some((run) => run.id === nextId)) {
+        const pending = data.find((run) => run.status === 'Pending Approval');
+        nextId = (pending ?? data[0]).id;
+      }
+
+      setSelectedPayrunId(nextId);
+      setErrorMessage(null);
+      return nextId;
+    } catch (error: any) {
+      console.error('Failed to load payruns:', error);
+      setErrorMessage(error?.message ?? 'Unable to load payruns.');
+      setPayruns([]);
+      setSelectedPayrunId(null);
+      return null;
+    }
+  };
+
+  const fetchPayrollsForPayrun = async (payrunId: number, force = false) => {
+    if (!force && payrollsByPayrun[payrunId]) {
       return;
     }
 
     const token = localStorage.getItem('token');
     if (!token) {
+      router.push('/login');
       return;
     }
 
     try {
-      await fetch('/api/notifications', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ markAllRead: true }),
+      setLoadingPayrollId(payrunId);
+      const response = await fetch(`/api/payroll/list?payrunId=${payrunId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
-      setNotifications((prev) => prev.map((notification) => ({
-        ...notification,
-        is_read: true,
-      })));
-    } catch (error) {
-      console.error('Failed to mark notifications as read:', error);
+      if (!response.ok) {
+        throw new Error('Unable to load payroll entries.');
+      }
+
+      const data: PayrollRow[] = await response.json();
+      setPayrollsByPayrun((prev) => ({ ...prev, [payrunId]: data }));
+      setErrorMessage(null);
+    } catch (error: any) {
+      console.error('Failed to load payroll entries:', error);
+      setErrorMessage(error?.message ?? 'Unable to load payroll entries.');
+    } finally {
+      setLoadingPayrollId(null);
     }
   };
 
-  const handleNotificationToggle = async () => {
-    const next = !showNotifications;
-    setShowNotifications(next);
-    if (next) {
-      await markNotificationsAsRead();
+  const ensurePayrollsLoaded = async (payrunId: number) => {
+    await fetchPayrollsForPayrun(payrunId);
+  };
+
+  const handleSelectPayrun = async (payrunId: number) => {
+    setSelectedPayrunId(payrunId);
+    setApprovalResult(null);
+    setErrorMessage(null);
+    await ensurePayrollsLoaded(payrunId);
+  };
+
+  const handleApprovePayrun = async (action: 'approve' | 'reject' | 'lock') => {
+    if (!selectedPayrunId) {
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    setApprovingAction(action);
+    setErrorMessage(null);
+    setApprovalResult(null);
+
+    try {
+      const response = await fetch('/api/payroll/payrun', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ payrunId: selectedPayrunId, action }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(result?.error ?? 'Failed to update payrun.');
+        return;
+      }
+
+      setApprovalResult(result as ApprovalSummary);
+
+      const nextId = await loadPayruns(selectedPayrunId);
+      if (nextId) {
+        await fetchPayrollsForPayrun(nextId, true);
+      }
+    } catch (error: any) {
+      console.error('Failed to update payrun:', error);
+      setErrorMessage(error?.message ?? 'Failed to update payrun.');
+    } finally {
+      setApprovingAction(null);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    router.push('/login');
-  };
+  const selectedPayrun = selectedPayrunId
+    ? payruns.find((run) => run.id === selectedPayrunId) ?? null
+    : null;
 
-  const unreadCount = useMemo(
-    () => notifications.filter((notification) => !notification.is_read).length,
-    [notifications]
-  );
+  const selectedPayrolls = selectedPayrunId
+    ? payrollsByPayrun[selectedPayrunId] ?? []
+    : [];
+
+  const overview = useMemo(() => {
+    const totalNet = payruns.reduce(
+      (sum, run) => sum + toNumber(run.total_net_salary),
+      0
+    );
+    const totalEmployees = payruns.reduce(
+      (sum, run) => sum + (run.total_employees ?? 0),
+      0
+    );
+    const pending = payruns.filter((run) => run.status !== 'Approved').length;
+    const approved = payruns.filter((run) => run.status === 'Approved').length;
+
+    return { totalNet, totalEmployees, pending, approved };
+  }, [payruns]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 flex items-center justify-center">
-        <div className="spinner" />
+        <Loader className="h-8 w-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30">
-      {/* Top Bar */}
-      <header className="glass sticky top-0 z-40 border-b border-white/20 backdrop-blur-xl">
-        <div className="px-6 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-40 border-b border-white/40 bg-white/70 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
-            <h1 className="text-2xl font-black gradient-text">Payroll Dashboard</h1>
-            <p className="text-sm text-slate-600">Salary Processing & Management</p>
+            <h1 className="text-2xl font-black gradient-text">Payroll Officer</h1>
+            <p className="text-sm text-slate-600">Manage monthly payroll approvals</p>
           </div>
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={handleNotificationToggle}
-                className="relative p-2 glass rounded-xl hover:bg-white/50 transition-colors"
-              >
-                <Bell className="h-5 w-5 text-slate-600" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                )}
-              </motion.button>
-              {showNotifications && (
-                <div className="absolute right-0 mt-3 w-72 glass rounded-2xl shadow-xl border border-white/40 max-h-80 overflow-y-auto z-50">
-                  <div className="p-4 flex items-center justify-between border-b border-white/30">
-                    <h4 className="text-sm font-semibold text-slate-800">Notifications</h4>
-                    <button
-                      onClick={() => setShowNotifications(false)}
-                      className="text-xs text-slate-500 hover:text-slate-700"
-                    >
-                      Close
-                    </button>
-                  </div>
-                  <div className="p-3 space-y-3">
-                    {notifications.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center">No notifications yet.</p>
-                    ) : (
-                      notifications.map((notification) => (
-                        <div key={notification.id} className="p-3 rounded-xl bg-white/60">
-                          <p className="text-xs font-semibold text-slate-700">{notification.title}</p>
-                          <p className="text-xs text-slate-500 mt-1">{notification.message}</p>
-                          <p className="text-[10px] text-slate-400 mt-2">
-                            {notification.created_at ? new Date(notification.created_at).toLocaleString() : ''}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleLogout}
-              className="bg-gradient-to-r from-red-500 to-red-600 text-white px-4 py-2 rounded-xl font-semibold flex items-center space-x-2"
-            >
-              <LogOut className="h-4 w-4" />
-              <span>Logout</span>
-            </motion.button>
-          </div>
+          <button
+            onClick={() => {
+              localStorage.removeItem('token');
+              router.push('/login');
+            }}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Logout
+          </button>
         </div>
       </header>
 
-      <div className="p-6 max-w-7xl mx-auto">
-        {/* Main Stats */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="premium-card mb-6 relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-green-400/20 to-emerald-400/20 rounded-full blur-3xl" />
-          <div className="relative grid md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="bg-gradient-to-br from-green-500 to-green-600 w-16 h-16 rounded-2xl flex items-center justify-center text-white mx-auto mb-3 shadow-lg">
-                <DollarSign className="h-8 w-8" />
+      <main className="mx-auto max-w-6xl space-y-6 px-6 py-6">
+        <div className="flex items-center justify-between">
+          <div />
+          <button
+            onClick={() => router.push('/leave')}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Apply Leave
+          </button>
+        </div>
+
+        <section className="premium-card relative overflow-hidden">
+          <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-gradient-to-br from-blue-400/20 to-purple-400/20 blur-3xl" />
+          <div className="relative">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="mb-1 text-2xl font-black text-slate-900">Time & Attendance</h2>
+                <div className="flex items-center gap-4 text-slate-600">
+                  <span className="inline-flex items-center gap-2 text-sm"><Clock className="h-4 w-4" /> {currentTime.toLocaleTimeString()}</span>
+                  <span className="inline-flex items-center gap-2 text-sm"><Calendar className="h-4 w-4" /> {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</span>
+                </div>
               </div>
-              <p className="text-4xl font-black gradient-text mb-1">₹{(stats.totalPayroll / 1000000).toFixed(2)}M</p>
-              <p className="text-sm text-slate-600 font-semibold">Total Monthly Payroll</p>
             </div>
-            <div className="text-center">
-              <div className="bg-gradient-to-br from-blue-500 to-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center text-white mx-auto mb-3 shadow-lg">
-                <Users className="h-8 w-8" />
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className={`rounded-2xl border-2 p-5 ${todayAttendance?.checkedIn ? 'border-green-200 bg-green-50/50' : 'border-blue-200 bg-blue-50/50'} `}>
+                <div className="mb-3 flex items-center gap-3">
+                  <div className={`rounded-xl p-3 ${todayAttendance?.checkedIn ? 'bg-green-500' : 'bg-blue-500'}`}>
+                    <Power className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Check In</h3>
+                    {todayAttendance?.checkInTime && (
+                      <p className="text-xs text-slate-600">Checked in at {todayAttendance.checkInTime}</p>
+                    )}
+                  </div>
+                </div>
+                {todayAttendance?.checkInLocation && (
+                  <div className="mb-3 inline-flex items-center gap-2 text-xs text-slate-600">
+                    <MapPin className="h-4 w-4" /> {todayAttendance.checkInLocation}
+                  </div>
+                )}
+                <button
+                  onClick={handleCheckIn}
+                  disabled={todayAttendance?.checkedIn || checkingIn}
+                  className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white ${todayAttendance?.checkedIn ? 'bg-slate-400' : 'bg-green-600 hover:bg-green-700'}`}
+                >
+                  {checkingIn ? 'Checking In...' : todayAttendance?.checkedIn ? 'Already Checked In' : 'Check In Now'}
+                </button>
               </div>
-              <p className="text-4xl font-black text-slate-900 mb-1">{stats.employees}</p>
-              <p className="text-sm text-slate-600 font-semibold">Total Employees</p>
-            </div>
-            <div className="text-center">
-              <div className="bg-gradient-to-br from-purple-500 to-purple-600 w-16 h-16 rounded-2xl flex items-center justify-center text-white mx-auto mb-3 shadow-lg">
-                <TrendingUp className="h-8 w-8" />
+
+              <div className={`rounded-2xl border-2 p-5 ${todayAttendance?.checkedOut ? 'border-orange-200 bg-orange-50/50' : 'border-slate-200 bg-slate-50/50'} `}>
+                <div className="mb-3 flex items-center gap-3">
+                  <div className={`rounded-xl p-3 ${todayAttendance?.checkedOut ? 'bg-orange-500' : 'bg-slate-400'}`}>
+                    <PowerOff className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Check Out</h3>
+                    {todayAttendance?.checkOutTime && (
+                      <p className="text-xs text-slate-600">Checked out at {todayAttendance.checkOutTime}</p>
+                    )}
+                    {todayAttendance?.workingHours && (
+                      <p className="text-xs font-semibold text-green-600">Worked: {todayAttendance.workingHours} hrs</p>
+                    )}
+                  </div>
+                </div>
+                {todayAttendance?.checkOutLocation && (
+                  <div className="mb-3 inline-flex items-center gap-2 text-xs text-slate-600">
+                    <MapPin className="h-4 w-4" /> {todayAttendance.checkOutLocation}
+                  </div>
+                )}
+                <button
+                  onClick={handleCheckOut}
+                  disabled={!todayAttendance?.checkedIn || todayAttendance?.checkedOut || checkingOut}
+                  className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white ${(!todayAttendance?.checkedIn || todayAttendance?.checkedOut) ? 'bg-slate-400' : 'bg-orange-600 hover:bg-orange-700'}`}
+                >
+                  {checkingOut ? 'Checking Out...' : todayAttendance?.checkedOut ? 'Already Checked Out' : !todayAttendance?.checkedIn ? 'Check In First' : 'Check Out Now'}
+                </button>
               </div>
-              <p className="text-4xl font-black text-slate-900 mb-1">₹{Math.round(stats.avgSalary).toLocaleString()}</p>
-              <p className="text-sm text-slate-600 font-semibold">Average Salary</p>
             </div>
           </div>
-        </motion.div>
+        </section>
+        {errorMessage && (
+          <div className="flex items-start space-x-3 rounded-2xl border border-red-200 bg-red-50/80 p-4 text-sm text-red-700">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+            <p>{errorMessage}</p>
+          </div>
+        )}
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+        <section className="grid gap-4 md:grid-cols-4">
           <StatCard
-            icon={<CheckCircle className="h-6 w-6" />}
-            label="Processed"
-            value={stats.processed}
-            color="from-green-500 to-green-600"
+            icon={<DollarSign className="h-6 w-6" />}
+            label="Total Net Pay"
+            value={formatCurrency(overview.totalNet)}
           />
           <StatCard
-            icon={<Clock className="h-6 w-6" />}
-            label="Pending"
-            value={stats.pendingPayroll}
-            color="from-orange-500 to-orange-600"
+            icon={<Users className="h-6 w-6" />}
+            label="Total Employees"
+            value={overview.totalEmployees}
           />
           <StatCard
             icon={<Calculator className="h-6 w-6" />}
-            label="Total Deductions"
-            value={`₹${(stats.totalDeductions / 1000000).toFixed(2)}M`}
-            color="from-red-500 to-red-600"
+            label="Pending Payruns"
+            value={overview.pending}
           />
           <StatCard
-            icon={<CreditCard className="h-6 w-6" />}
-            label="Net Payable"
-            value={`₹${(stats.netPayable / 1000000).toFixed(2)}M`}
-            color="from-blue-500 to-blue-600"
+            icon={<CheckCircle className="h-6 w-6" />}
+            label="Approved Payruns"
+            value={overview.approved}
           />
-        </div>
+        </section>
 
-        {/* Quick Actions */}
-        <div className="grid md:grid-cols-4 gap-4 mb-6">
-          <QuickAction
-            icon={<Calculator className="h-5 w-5" />}
-            label="Generate Payroll"
-            onClick={() => router.push('/payroll')}
-            color="from-green-500 to-green-600"
-          />
-          <QuickAction
-            icon={<FileText className="h-5 w-5" />}
-            label="View Reports"
-            onClick={() => {}}
-            color="from-blue-500 to-blue-600"
-          />
-          <QuickAction
-            icon={<Download className="h-5 w-5" />}
-            label="Export Data"
-            onClick={() => {}}
-            color="from-purple-500 to-purple-600"
-          />
-          <QuickAction
-            icon={<BarChart3 className="h-5 w-5" />}
-            label="Analytics"
-            onClick={() => {}}
-            color="from-orange-500 to-orange-600"
-          />
-        </div>
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="premium-card space-y-6"
+        >
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Monthly Payruns</h2>
+              <p className="text-sm text-slate-500">
+                Select a payrun to review salary totals and trigger approvals.
+              </p>
+            </div>
+            {approvingAction && (
+              <div className="flex items-center space-x-2 text-sm text-blue-600">
+                <Loader className="h-4 w-4 animate-spin" />
+                <span>
+                  {approvingAction === 'approve' && 'Approving payrun'}
+                  {approvingAction === 'reject' && 'Rejecting payrun'}
+                  {approvingAction === 'lock' && 'Locking payrun'}
+                </span>
+              </div>
+            )}
+          </div>
 
-        {/* Main Content */}
-        <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          {/* Recent Payroll Processing */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="premium-card"
-          >
-            <h3 className="text-xl font-bold text-slate-900 mb-4 flex items-center space-x-2">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <span>Recent Payroll (Processed)</span>
-            </h3>
+          <div className="grid gap-6 md:grid-cols-[260px,1fr]">
             <div className="space-y-3">
-              {recentPayrolls.map((payroll, idx) => (
-                <div key={idx} className="p-4 glass rounded-xl hover:bg-white/80 transition-all">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="font-bold text-slate-900">{payroll.employee}</p>
-                      <p className="text-sm text-slate-600">{payroll.code}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xl font-black gradient-text">₹{payroll.netSalary.toLocaleString()}</p>
-                      <span className="badge badge-success text-xs">{payroll.status}</span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <p className="text-slate-500">Basic</p>
-                      <p className="font-semibold">₹{payroll.basicSalary.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Allowances</p>
-                      <p className="font-semibold text-green-600">+₹{payroll.allowances.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Deductions</p>
-                      <p className="font-semibold text-red-600">-₹{payroll.deductions.toLocaleString()}</p>
-                    </div>
-                  </div>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="w-full mt-3 glass px-4 py-2 rounded-lg flex items-center justify-center space-x-2 hover:bg-white"
-                  >
-                    <Download className="h-4 w-4" />
-                    <span className="text-sm font-semibold">Download Payslip</span>
-                  </motion.button>
+              {payruns.length === 0 ? (
+                <div className="glass rounded-xl p-4 text-sm text-slate-500">
+                  No payruns available. Generate payroll to get started.
                 </div>
-              ))}
-            </div>
-          </motion.div>
+              ) : (
+                payruns.map((run) => {
+                  const isSelected = run.id === selectedPayrunId;
+                  const label = `${MONTH_NAMES[(run.month - 1 + 12) % 12]} ${run.year}`;
 
-          {/* Pending Processing */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="premium-card"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
-                <Clock className="h-5 w-5 text-orange-600" />
-                <span>Pending Processing</span>
-              </h3>
-              <span className="badge badge-warning">{pendingProcessing.length}</span>
+                  return (
+                    <button
+                      key={run.id}
+                      onClick={() => handleSelectPayrun(run.id)}
+                      className={`w-full rounded-2xl border p-4 text-left transition-all ${
+                        isSelected
+                          ? 'border-blue-400 bg-blue-50/80 shadow-lg'
+                          : 'border-white/20 bg-white/70 hover:border-blue-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-slate-900">{label}</h3>
+                        <span
+                          className={`badge ${
+                            run.status === 'Approved'
+                              ? 'badge-success'
+                              : run.status === 'Pending Approval'
+                              ? 'badge-warning'
+                              : run.status === 'Rejected'
+                              ? 'badge-danger'
+                              : 'badge-info'
+                          }`}
+                        >
+                          {run.status}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                        <span>{run.total_employees ?? 0} employees</span>
+                        <span>Total Net {formatCurrency(toNumber(run.total_net_salary))}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
-            <div className="space-y-3">
-              {pendingProcessing.map((emp, idx) => (
-                <div key={idx} className="p-4 glass rounded-xl hover:bg-white/80 transition-all">
-                  <div className="flex items-center justify-between mb-3">
+
+            <div className="space-y-4 rounded-2xl border border-white/30 bg-white/80 p-6">
+              {selectedPayrun ? (
+                <>
+                  <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div>
-                      <p className="font-bold text-slate-900">{emp.employee}</p>
-                      <p className="text-sm text-slate-600">{emp.code} • {emp.department}</p>
+                      <p className="text-xs text-slate-500">Selected Payrun</p>
+                      <h3 className="text-2xl font-black text-slate-900">
+                        {MONTH_NAMES[(selectedPayrun.month - 1 + 12) % 12]} {selectedPayrun.year}
+                      </h3>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-slate-500">Employees</p>
+                        <p className="font-semibold text-slate-900">
+                          {selectedPayrun.total_employees ?? 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Total Net</p>
+                        <p className="font-semibold text-green-600">
+                          {formatCurrency(toNumber(selectedPayrun.total_net_salary))}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Total Gross</p>
+                        <p className="font-semibold text-slate-900">
+                          {formatCurrency(toNumber(selectedPayrun.total_gross_salary))}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Deductions</p>
+                        <p className="font-semibold text-slate-900">
+                          {formatCurrency(toNumber(selectedPayrun.total_deductions))}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                    <div>
-                      <p className="text-slate-500">Working Days</p>
-                      <p className="font-semibold text-slate-900">{emp.workingDays}</p>
+
+                  {approvalResult && (
+                    <div className="rounded-xl border border-green-200 bg-green-50/80 p-4 text-sm text-green-700">
+                      <p className="font-semibold">{approvalResult.message}</p>
+                      {approvalResult.payslips && (
+                        <ul className="mt-2 space-y-1 text-xs">
+                          <li>
+                            Payslips generated: <strong>{approvalResult.payslips.total}</strong>
+                          </li>
+                          <li>
+                            Emails sent successfully:{' '}
+                            <strong>{approvalResult.payslips.emailsSent}</strong>
+                          </li>
+                          {approvalResult.payslips.emailsFailed > 0 && (
+                            <li className="text-red-600">
+                              Emails failed: {approvalResult.payslips.emailsFailed}
+                            </li>
+                          )}
+                        </ul>
+                      )}
                     </div>
-                    <div>
-                      <p className="text-slate-500">Present Days</p>
-                      <p className="font-semibold text-green-600">{emp.presentDays}</p>
-                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => handleApprovePayrun('approve')}
+                      disabled={approvingAction !== null || selectedPayrun.status === 'Approved'}
+                      className="flex-1 min-w-[140px] rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Approve & Send Payslips
+                    </button>
+                    <button
+                      onClick={() => handleApprovePayrun('reject')}
+                      disabled={approvingAction !== null}
+                      className="flex-1 min-w-[120px] rounded-xl border border-red-200 bg-red-50 px-4 py-2 font-semibold text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => handleApprovePayrun('lock')}
+                      disabled={approvingAction !== null}
+                      className="flex-1 min-w-[120px] rounded-xl border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Lock
+                    </button>
                   </div>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center justify-center space-x-2"
-                  >
-                    <Calculator className="h-4 w-4" />
-                    <span>Process Payroll</span>
-                  </motion.button>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
 
-        {/* Department-wise Breakdown */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="premium-card mt-6"
-        >
-          <h3 className="text-xl font-bold text-slate-900 mb-4 flex items-center space-x-2">
-            <BarChart3 className="h-5 w-5 text-blue-600" />
-            <span>Department-wise Payroll Breakdown</span>
-          </h3>
-          <div className="grid md:grid-cols-5 gap-4">
-            {[
-              { dept: 'IT', amount: 3375000, employees: 45, color: 'from-blue-500 to-blue-600' },
-              { dept: 'Finance', amount: 2240000, employees: 28, color: 'from-green-500 to-green-600' },
-              { dept: 'Sales', amount: 2625000, employees: 35, color: 'from-purple-500 to-purple-600' },
-              { dept: 'Operations', amount: 1650000, employees: 22, color: 'from-orange-500 to-orange-600' },
-              { dept: 'HR', amount: 960000, employees: 15, color: 'from-pink-500 to-pink-600' },
-            ].map((dept, idx) => (
-              <motion.div
-                key={idx}
-                whileHover={{ y: -5 }}
-                className="premium-card"
-              >
-                <div className={`bg-gradient-to-br ${dept.color} w-10 h-10 rounded-xl flex items-center justify-center text-white mb-3`}>
-                  <DollarSign className="h-5 w-5" />
-                </div>
-                <p className="text-sm text-slate-600 font-semibold mb-1">{dept.dept}</p>
-                <p className="text-xl font-black text-slate-900 mb-1">₹{(dept.amount / 1000).toFixed(0)}K</p>
-                <p className="text-xs text-slate-500">{dept.employees} employees</p>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Salary Distribution Chart */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="premium-card mt-6"
-        >
-          <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center space-x-2">
-            <TrendingUp className="h-5 w-5 text-purple-600" />
-            <span>Salary Distribution by Range</span>
-          </h3>
-          <div className="space-y-4">
-            {[
-              { range: '< ₹50K', count: 28, percentage: 19, color: 'from-blue-400 to-blue-500' },
-              { range: '₹50K - ₹75K', count: 52, percentage: 36, color: 'from-purple-400 to-purple-500' },
-              { range: '₹75K - ₹1L', count: 41, percentage: 28, color: 'from-pink-400 to-pink-500' },
-              { range: '₹1L - ₹1.5L', count: 18, percentage: 12, color: 'from-orange-400 to-orange-500' },
-              { range: '> ₹1.5L', count: 6, percentage: 5, color: 'from-green-400 to-green-500' },
-            ].map((item, idx) => (
-              <motion.div
-                key={item.range}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: idx * 0.1 }}
-                className="space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-slate-700 w-32">{item.range}</span>
-                  <div className="flex-1 mx-4">
-                    <div className="relative h-10 bg-slate-100 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${item.percentage}%` }}
-                        transition={{ duration: 1, delay: idx * 0.1 }}
-                        className={`h-full bg-gradient-to-r ${item.color} flex items-center justify-end pr-3`}
-                      >
-                        <span className="text-xs font-bold text-white drop-shadow-lg">{item.percentage}%</span>
-                      </motion.div>
-                    </div>
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-slate-700">
+                      Employee payroll summary
+                    </h4>
+                    {loadingPayrollId === selectedPayrun.id && (
+                      <div className="flex items-center space-x-2 text-xs text-slate-500">
+                        <Loader className="h-3 w-3 animate-spin" />
+                        <span>Loading payroll entries</span>
+                      </div>
+                    )}
+                    {selectedPayrolls.length === 0 && loadingPayrollId !== selectedPayrun.id && (
+                      <p className="text-xs text-slate-500">
+                        No payroll entries available for this payrun yet.
+                      </p>
+                    )}
+                    {selectedPayrolls.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedPayrolls.slice(0, 10).map((row) => (
+                          <div
+                            key={row.id}
+                            className="rounded-xl border border-white/40 bg-white/70 p-4 text-sm"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-semibold text-slate-900">
+                                  {row.first_name} {row.last_name}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {row.employee_code} - {row.department ?? 'Unknown'}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-slate-500">Net Salary</p>
+                                <p className="font-semibold text-green-600">
+                                  {formatCurrency(toNumber(row.net_salary))}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-slate-500">
+                              <span>Basic: {formatCurrency(toNumber(row.basic_salary))}</span>
+                              <span>Allowances: {formatCurrency(toNumber(row.allowances))}</span>
+                              <span>Deductions: {formatCurrency(toNumber(row.deductions))}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {selectedPayrolls.length > 10 && (
+                          <p className="text-[11px] text-slate-500">
+                            Showing first 10 of {selectedPayrolls.length} payroll records.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <span className="text-sm font-bold text-slate-900 w-20 text-right">{item.count} emp</span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Monthly Payroll Trend */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="premium-card mt-6"
-        >
-          <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center space-x-2">
-            <DollarSign className="h-5 w-5 text-green-600" />
-            <span>Payroll Trend - Last 6 Months</span>
-          </h3>
-          <div className="flex items-end justify-between space-x-2 h-64">
-            {[
-              { month: 'Jul', amount: 9800000 },
-              { month: 'Aug', amount: 10200000 },
-              { month: 'Sep', amount: 10500000 },
-              { month: 'Oct', amount: 10300000 },
-              { month: 'Nov', amount: 10700000 },
-              { month: 'Dec', amount: 10850000 },
-            ].map((data, idx) => {
-              const maxAmount = 11000000;
-              const heightPercentage = (data.amount / maxAmount) * 100;
-              return (
-                <div key={data.month} className="flex-1 flex flex-col items-center space-y-2">
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: `${heightPercentage}%`, opacity: 1 }}
-                    transition={{ duration: 1, delay: idx * 0.1 }}
-                    className="w-full bg-gradient-to-t from-green-700 via-green-500 to-green-400 rounded-t-xl relative group cursor-pointer hover:from-green-800 hover:via-green-600 hover:to-green-500 transition-all shadow-lg"
-                  >
-                    <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-xs px-3 py-2 rounded-lg whitespace-nowrap font-bold shadow-xl">
-                      ₹{(data.amount / 100000).toFixed(1)}L
-                    </div>
-                  </motion.div>
-                  <span className="text-sm font-bold text-slate-600">{data.month}</span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-6 grid grid-cols-3 gap-4">
-            <div className="glass p-4 rounded-xl text-center">
-              <p className="text-xs text-slate-600 mb-1">Average</p>
-              <p className="text-2xl font-black text-slate-900">₹10.3M</p>
-            </div>
-            <div className="glass p-4 rounded-xl text-center">
-              <p className="text-xs text-slate-600 mb-1">Growth</p>
-              <p className="text-2xl font-black text-green-600">+10.7%</p>
-            </div>
-            <div className="glass p-4 rounded-xl text-center">
-              <p className="text-xs text-slate-600 mb-1">Highest</p>
-              <p className="text-2xl font-black text-slate-900">₹10.85M</p>
+                </>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  Select a payrun to review totals and employee salaries.
+                </p>
+              )}
             </div>
           </div>
-        </motion.div>
-      </div>
+        </motion.section>
+      </main>
     </div>
   );
 }
 
-function StatCard({ icon, label, value, color }: any) {
-  return (
-    <motion.div
-      whileHover={{ y: -5 }}
-      className="premium-card relative overflow-hidden"
-    >
-      <div className={`bg-gradient-to-br ${color} w-12 h-12 rounded-xl flex items-center justify-center text-white mb-3 shadow-lg`}>
-        {icon}
-      </div>
-      <p className="text-sm text-slate-600 font-semibold mb-1">{label}</p>
-      <p className="text-2xl font-black text-slate-900">{value}</p>
-    </motion.div>
-  );
+interface StatCardProps {
+  icon: ReactNode;
+  label: string;
+  value: string | number;
 }
 
-function QuickAction({ icon, label, onClick, color }: any) {
+function StatCard({ icon, label, value }: StatCardProps) {
   return (
-    <motion.button
-      whileHover={{ scale: 1.05, y: -5 }}
-      whileTap={{ scale: 0.95 }}
-      onClick={onClick}
-      className="premium-card flex items-center space-x-3 p-4 hover:shadow-xl transition-all group"
+    <motion.div
+      whileHover={{ y: -4 }}
+      className="rounded-2xl border border-white/40 bg-white/80 p-5 shadow-sm"
     >
-      <div className={`bg-gradient-to-br ${color} p-3 rounded-xl text-white group-hover:scale-110 transition-transform shadow-lg`}>
+      <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 text-white">
         {icon}
       </div>
-      <span className="font-semibold text-slate-900">{label}</span>
-    </motion.button>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-black text-slate-900">{value}</p>
+    </motion.div>
   );
 }

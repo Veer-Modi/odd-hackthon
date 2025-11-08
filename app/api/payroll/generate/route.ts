@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
+import { getDaysInMonth, normalizeMonthYear } from '@/lib/payroll';
 
 // POST generate payroll for a month
 export async function POST(request: NextRequest) {
@@ -15,7 +16,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { month, year } = await request.json();
+    const body = await request.json();
+    const { month, year } = normalizeMonthYear(body?.month, body?.year);
 
     if (!month || !year) {
       return NextResponse.json({ error: 'Month and year are required' }, { status: 400 });
@@ -56,8 +58,9 @@ export async function POST(request: NextRequest) {
     );
 
     // Get attendance for the month
+    const daysInMonth = getDaysInMonth(month, year);
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
 
     // Get approved leaves for the month
     const [leaves]: any = await pool.execute(
@@ -105,6 +108,8 @@ export async function POST(request: NextRequest) {
     let totalDeductions = 0;
     let totalNet = 0;
 
+    const roundAmount = (value: number) => Number.parseFloat((value || 0).toFixed(2));
+
     // Calculate payroll for each employee
     for (const employee of employees) {
       const empId = employee.id;
@@ -113,8 +118,8 @@ export async function POST(request: NextRequest) {
       const leaveDays = leaveMap[empId] || 0;
 
       // Calculate salary
-      const basicSalary = parseFloat(employee.basic_salary) || 0;
-      const allowances = parseFloat(employee.allowances) || 0;
+      const basicSalary = Number.parseFloat(employee.basic_salary) || 0;
+      const allowances = Number.parseFloat(employee.allowances) || 0;
       
       // Per day salary (for absent days calculation)
       const perDaySalary = basicSalary / workingDaysPerMonth;
@@ -124,7 +129,7 @@ export async function POST(request: NextRequest) {
       const unpaidDays = Math.max(0, workingDaysPerMonth - paidDays);
       
       // Calculate basic salary based on paid days
-      const calculatedBasic = (perDaySalary * paidDays);
+      const calculatedBasic = perDaySalary * paidDays;
       
       // Gross salary = calculated basic + allowances (full allowances)
       const grossSalary = calculatedBasic + allowances;
@@ -132,10 +137,10 @@ export async function POST(request: NextRequest) {
       // Deductions
       const pfDeduction = (calculatedBasic * 12) / 100; // 12% PF on calculated basic
       const taxDeduction = (grossSalary * taxRate) / 100; // Tax on gross salary
-      const unpaidLeaveDeduction = unpaidDays > 0 ? (perDaySalary * unpaidDays) : 0; // Unpaid days deduction
-      
+      const unpaidLeaveDeduction = unpaidDays > 0 ? perDaySalary * unpaidDays : 0; // Unpaid days deduction
+
       const empTotalDeductions = pfDeduction + taxDeduction + unpaidLeaveDeduction;
-      const netSalary = grossSalary - empTotalDeductions;
+      const netSalary = Math.max(0, grossSalary - empTotalDeductions);
 
       // Insert payroll record
       await pool.execute(
@@ -150,11 +155,11 @@ export async function POST(request: NextRequest) {
           payrunId,
           month,
           year,
-          calculatedBasic,
-          allowances,
-          empTotalDeductions,
-          grossSalary,
-          netSalary,
+          roundAmount(calculatedBasic),
+          roundAmount(allowances),
+          roundAmount(empTotalDeductions),
+          roundAmount(grossSalary),
+          roundAmount(netSalary),
           workingDaysPerMonth,
           presentDays,
           absentDays,
@@ -164,9 +169,9 @@ export async function POST(request: NextRequest) {
         ]
       );
 
-      totalGross += grossSalary;
-      totalDeductions += empTotalDeductions;
-      totalNet += netSalary;
+      totalGross += roundAmount(grossSalary);
+      totalDeductions += roundAmount(empTotalDeductions);
+      totalNet += roundAmount(netSalary);
     }
 
     // Update payrun totals

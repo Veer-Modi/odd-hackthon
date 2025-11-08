@@ -234,7 +234,7 @@ export default function LeavePage() {
             <h1 className="text-4xl font-black gradient-text">Leave Management</h1>
             <p className="text-slate-600 mt-2">Apply for leave and manage your time-off requests</p>
           </div>
-          {user?.role === 'employee' && (
+          {(['employee', 'hr', 'payroll_officer'] as any[]).includes(user?.role) && (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -279,7 +279,7 @@ export default function LeavePage() {
       </div>
 
       {/* Leave Balance Card */}
-      {user?.role === 'employee' && (
+      {(['employee', 'hr', 'payroll_officer'] as any[]).includes(user?.role) && (
         <div className="max-w-7xl mx-auto mb-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}

@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { sendEmail, emailTemplates } from '@/lib/email';
 
 const HR_ROLES = ['admin', 'hr'];
+const ALLOWED_USER_ROLES = ['employee', 'hr', 'payroll_officer', 'admin'];
 
 const toNullableNumber = (value: any) => {
   if (value === undefined || value === null || value === '') {
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const [employees] = await pool.execute(
-      `SELECT e.*, u.email as user_email, u.role, u.is_active
+      `SELECT e.*, u.email as user_email, u.role, u.role as user_role, u.is_active
        FROM employees e
        LEFT JOIN users u ON e.user_id = u.id
        ORDER BY e.created_at DESC`
@@ -78,6 +79,8 @@ export async function POST(request: NextRequest) {
   if (hr.error) {
     return hr.error;
   }
+  const requester = (hr as any).payload || {};
+  const requesterRole: string = requester.role ?? 'employee';
 
   let connection: any;
 
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
       joinDate,
       basicSalary,
       allowances,
-      role = 'employee',
+      role: requestedRole = 'employee',
       password,
       status,
     } = body;
@@ -117,6 +120,14 @@ export async function POST(request: NextRequest) {
 
     const normalizedStatus = normalizeStatus(status);
 
+    let targetRole = typeof requestedRole === 'string' ? requestedRole : 'employee';
+    if (!ALLOWED_USER_ROLES.includes(targetRole)) {
+      targetRole = 'employee';
+    }
+    if (requesterRole !== 'admin') {
+      targetRole = 'employee';
+    }
+
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -130,7 +141,7 @@ export async function POST(request: NextRequest) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const [userResult]: any = await connection.execute(
       'INSERT INTO users (email, password, role, is_active) VALUES (?, ?, ?, ?)',
-      [email, hashedPassword, role, normalizedStatus === 'active']
+      [email, hashedPassword, targetRole, normalizedStatus === 'active']
     );
 
     const userId = userResult.insertId;
@@ -218,6 +229,8 @@ export async function PUT(request: NextRequest) {
   if (hr.error) {
     return hr.error;
   }
+  const requester = (hr as any).payload || {};
+  const requesterRole: string = requester.role ?? 'employee';
 
   let connection: any;
 
@@ -326,9 +339,10 @@ export async function PUT(request: NextRequest) {
       userUpdates.push('is_active = ?');
       userParams.push(resolvedStatus === 'active');
     }
-    if (role !== undefined) {
+    if (role !== undefined && requesterRole === 'admin') {
+      const sanitizedRole = ALLOWED_USER_ROLES.includes(role) ? role : employee.user_role;
       userUpdates.push('role = ?');
-      userParams.push(role);
+      userParams.push(sanitizedRole);
     }
 
     if (employeeUpdates.length === 0 && userUpdates.length === 0 && !password) {

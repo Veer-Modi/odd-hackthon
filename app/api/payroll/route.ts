@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
+import { getDaysInMonth, normalizeMonthYear } from '@/lib/payroll';
 
 // GET payroll records
 export async function GET(request: NextRequest) {
@@ -17,11 +18,15 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const employeeId = searchParams.get('employeeId');
-    const month = searchParams.get('month');
-    const year = searchParams.get('year');
+    const monthParam = searchParams.get('month');
+    const yearParam = searchParams.get('year');
+
+    const { month, year } = normalizeMonthYear(monthParam, yearParam);
 
     let query = `
-      SELECT p.*, e.first_name, e.last_name, e.employee_code, e.department
+      SELECT p.*, e.first_name, e.last_name, e.employee_code, e.department,
+             CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+             (p.deductions + IFNULL(p.penalty, 0)) AS total_deductions
       FROM payroll p
       JOIN employees e ON p.employee_id = e.id
       WHERE 1=1
@@ -33,12 +38,12 @@ export async function GET(request: NextRequest) {
       params.push(employeeId);
     }
 
-    if (month) {
+    if (month !== undefined) {
       query += ' AND p.month = ?';
       params.push(month);
     }
 
-    if (year) {
+    if (year !== undefined) {
       query += ' AND p.year = ?';
       params.push(year);
     }
@@ -67,7 +72,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { employeeId, month, year } = await request.json();
+    const body = await request.json();
+    const employeeId = body?.employeeId;
+    const { month, year } = normalizeMonthYear(body?.month, body?.year);
+
+    if (!employeeId) {
+      return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
+    }
+
+    if (!month || !year) {
+      return NextResponse.json({ error: 'Month and year are required' }, { status: 400 });
+    }
 
     // Get employee details
     const [employees]: any = await pool.execute(
@@ -84,7 +99,7 @@ export async function POST(request: NextRequest) {
     // Get attendance for the month
     const [attendance]: any = await pool.execute(
       `SELECT 
-        COUNT(*) as present_days,
+        SUM(CASE WHEN status IN ('Present', 'Late', 'Half Day') THEN 1 ELSE 0 END) as present_days,
         SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent_days
        FROM attendance
        WHERE employee_id = ? AND MONTH(date) = ? AND YEAR(date) = ?`,
@@ -100,7 +115,7 @@ export async function POST(request: NextRequest) {
       [employeeId, month, year]
     );
 
-    const workingDays = new Date(year, month, 0).getDate(); // Days in month
+    const workingDays = getDaysInMonth(month, year);
     const presentDays = attendance[0].present_days || 0;
     const absentDays = attendance[0].absent_days || 0;
     const leaveDays = leaves[0].leave_days || 0;
@@ -113,7 +128,7 @@ export async function POST(request: NextRequest) {
     const deductions = perDaySalary * absentDays;
     
     const grossSalary = basicSalary + allowances;
-    const netSalary = grossSalary - deductions;
+    const netSalary = Math.max(0, grossSalary - deductions);
 
     // Check if payroll already exists
     const [existing]: any = await pool.execute(

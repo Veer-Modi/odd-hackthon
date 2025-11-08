@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     let employeeId = searchParams.get('employeeId');
     const status = searchParams.get('status');
+    const roleParam = searchParams.get('role');
 
     // Get employee ID if user is employee
     if (!employeeId && payload.role === 'employee') {
@@ -32,10 +33,11 @@ export async function GET(request: NextRequest) {
     }
 
     let query = `
-      SELECT lr.*, e.first_name, e.last_name, e.employee_code, lt.name as leave_type_name
+      SELECT lr.*, e.first_name, e.last_name, e.employee_code, lt.name as leave_type_name, u.role as user_role
       FROM leave_requests lr
       JOIN employees e ON lr.employee_id = e.id
       JOIN leave_types lt ON lr.leave_type_id = lt.id
+      LEFT JOIN users u ON e.user_id = u.id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -48,6 +50,14 @@ export async function GET(request: NextRequest) {
     if (status) {
       query += ' AND lr.status = ?';
       params.push(status);
+    }
+
+    if (roleParam) {
+      if (payload.role !== 'admin') {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      query += ' AND u.role = ?';
+      params.push(roleParam);
     }
 
     query += ' ORDER BY lr.created_at DESC';
@@ -186,10 +196,11 @@ export async function PUT(request: NextRequest) {
 
     // Get leave request details
     const [leaveRequest]: any = await pool.execute(
-      `SELECT lr.*, e.first_name, e.last_name, e.user_id, lt.name as leave_type_name
+      `SELECT lr.*, e.first_name, e.last_name, e.user_id, lt.name as leave_type_name, u.role as employee_user_role
        FROM leave_requests lr
        JOIN employees e ON lr.employee_id = e.id
        JOIN leave_types lt ON lr.leave_type_id = lt.id
+       JOIN users u ON e.user_id = u.id
        WHERE lr.id = ?`,
       [id]
     );
@@ -263,6 +274,29 @@ export async function PUT(request: NextRequest) {
             subject: emailTemplate.subject,
             html: emailTemplate.html,
           });
+        }
+
+        // If admin approved HR's leave, also send confirmation to the acting admin
+        if (payload.role === 'admin' && requestData.employee_user_role === 'hr' && status === 'Approved') {
+          const [actingAdmin]: any = await pool.execute(
+            'SELECT email FROM users WHERE id = ?',
+            [payload.userId]
+          );
+          const adminEmail = actingAdmin?.[0]?.email;
+          if (adminEmail) {
+            const subject = `HR Leave Approved: ${employeeName} (${requestData.start_date} - ${requestData.end_date})`;
+            const html = `
+              <div style="font-family: Arial, sans-serif;">
+                <h2>HR Leave Approved</h2>
+                <p>You approved an HR leave request.</p>
+                <ul>
+                  <li><strong>Employee:</strong> ${employeeName}</li>
+                  <li><strong>Type:</strong> ${requestData.leave_type_name}</li>
+                  <li><strong>Dates:</strong> ${requestData.start_date} to ${requestData.end_date} (${requestData.total_days} days)</li>
+                </ul>
+              </div>`;
+            await sendEmail({ to: adminEmail, subject, html });
+          }
         }
 
         if (notificationResult?.insertId) {

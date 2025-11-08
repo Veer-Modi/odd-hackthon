@@ -18,6 +18,20 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     let employeeId = searchParams.get('employeeId');
     const date = searchParams.get('date');
+    const roleFilterRaw = searchParams.get('role');
+
+    const allowedRoleFilters = ['employee', 'hr', 'payroll_officer', 'admin'];
+    let roleFilter: string | null = null;
+
+    if (roleFilterRaw) {
+      if (!allowedRoleFilters.includes(roleFilterRaw)) {
+        return NextResponse.json({ error: 'Invalid role filter' }, { status: 400 });
+      }
+      if (payload.role !== 'admin' && roleFilterRaw !== payload.role) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      roleFilter = roleFilterRaw;
+    }
 
     // If user is employee, automatically filter by their employee ID
     if (!employeeId && payload.role === 'employee') {
@@ -28,13 +42,23 @@ export async function GET(request: NextRequest) {
       if (employees.length > 0) {
         employeeId = employees[0].id.toString();
       }
+    } else if (employeeId && payload.role === 'employee') {
+      const [employees]: any = await pool.execute(
+        'SELECT id FROM employees WHERE user_id = ?',
+        [payload.userId]
+      );
+      const myEmployeeId = employees.length > 0 ? employees[0].id.toString() : null;
+      if (!myEmployeeId || employeeId !== myEmployeeId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     let query = `
       SELECT a.*, e.first_name, e.last_name, e.employee_code, e.department,
-             a.check_in_location, a.check_out_location
+             a.check_in_location, a.check_out_location, u.role as user_role
       FROM attendance a
       JOIN employees e ON a.employee_id = e.id
+      JOIN users u ON e.user_id = u.id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -47,6 +71,14 @@ export async function GET(request: NextRequest) {
     if (date) {
       query += ' AND a.date = ?';
       params.push(date);
+    }
+
+    if (roleFilter) {
+      query += ' AND u.role = ?';
+      params.push(roleFilter);
+    } else if (payload.role !== 'admin') {
+      query += ' AND u.role = ?';
+      params.push(payload.role);
     }
 
     query += ' ORDER BY a.date DESC, a.check_in DESC LIMIT 100';
