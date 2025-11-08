@@ -183,8 +183,6 @@ export async function POST(request: NextRequest) {
       ]
     );
 
-    await connection.commit();
-
     const template = emailTemplates.employeeCredentials(
       email,
       password,
@@ -215,6 +213,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   } finally {
     if (connection) {
+      connection.commit().catch(() => null);
       connection.release();
     }
   }

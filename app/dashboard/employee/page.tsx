@@ -24,6 +24,9 @@ export default function EmployeeDashboardPage() {
   const [location, setLocation] = useState<string>('');
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [nightRequests, setNightRequests] = useState<any[]>([]);
+  const [newNight, setNewNight] = useState<{ startDate: string; endDate: string; reason: string }>({ startDate: '', endDate: '', reason: '' });
+  const [submittingNight, setSubmittingNight] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -90,6 +93,15 @@ export default function EmployeeDashboardPage() {
       if (notifRes.ok) {
         const notifData = await notifRes.json();
         setNotifications(notifData);
+      }
+
+      // Fetch my night shift requests
+      const nsRes = await fetch('/api/night-shift', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (nsRes.ok) {
+        const data = await nsRes.json();
+        setNightRequests(Array.isArray(data) ? data.slice(0, 5) : []);
       }
 
       // Get user's location
@@ -251,6 +263,37 @@ export default function EmployeeDashboardPage() {
     [notifications]
   );
 
+  const submitNightShiftRequest = async () => {
+    if (!newNight.startDate || !newNight.endDate) {
+      alert('Please select start and end dates');
+      return;
+    }
+    setSubmittingNight(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('/api/night-shift', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ startDate: newNight.startDate, endDate: newNight.endDate, reason: newNight.reason }),
+      });
+      const out = await res.json();
+      if (!res.ok) {
+        alert(out?.error || 'Failed to submit');
+      } else {
+        // refresh list
+        await fetchData();
+        setNewNight({ startDate: '', endDate: '', reason: '' });
+      }
+    } catch (e) {
+      alert('Unable to submit request');
+    } finally {
+      setSubmittingNight(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 flex items-center justify-center">
@@ -354,6 +397,17 @@ export default function EmployeeDashboardPage() {
                     <span>{currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</span>
                   </div>
                 </div>
+                {todayAttendance?.shiftType && (
+                  <div className="mt-2 text-xs text-slate-600 flex items-center gap-2">
+                    <span className={`badge ${todayAttendance.shiftType === 'night' ? 'badge-warning' : 'badge-info'}`}>Shift: {todayAttendance.shiftType}</span>
+                    {todayAttendance?.scheduledCheckOut && (
+                      <span>Scheduled out at {new Date(todayAttendance.scheduledCheckOut).toLocaleTimeString()}</span>
+                    )}
+                    {todayAttendance?.autoCheckout && todayAttendance?.autoCheckoutAt && (
+                      <span className="text-red-600">• Auto checked out at {new Date(todayAttendance.autoCheckoutAt).toLocaleTimeString()}</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -503,7 +557,7 @@ export default function EmployeeDashboardPage() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => router.push('/profile')}
+              onClick={() => router.push('/dashboard/employee/profile')}
               className="glass px-4 py-2 rounded-xl flex items-center space-x-2 hover:bg-white/80"
             >
               <Edit className="h-4 w-4" />

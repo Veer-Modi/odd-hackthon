@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const [attendance]: any = await pool.execute(
       `SELECT id, date, check_in, check_out, check_in_location, check_out_location, 
               status, working_hours, check_in_latitude, check_in_longitude,
-              check_out_latitude, check_out_longitude
+              check_out_latitude, check_out_longitude, shift_type, scheduled_check_out, auto_checkout, auto_checkout_at
        FROM attendance 
        WHERE employee_id = ? AND date = ?`,
       [employeeId, today]
@@ -61,6 +61,10 @@ export async function GET(request: NextRequest) {
       checkInLongitude: record.check_in_longitude,
       checkOutLatitude: record.check_out_latitude,
       checkOutLongitude: record.check_out_longitude,
+      shiftType: record.shift_type,
+      scheduledCheckOut: record.scheduled_check_out,
+      autoCheckout: !!record.auto_checkout,
+      autoCheckoutAt: record.auto_checkout_at,
     });
   } catch (error) {
     console.error('Get today attendance error:', error);

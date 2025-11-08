@@ -27,30 +27,24 @@ export async function GET(request: NextRequest) {
       if (!allowedRoleFilters.includes(roleFilterRaw)) {
         return NextResponse.json({ error: 'Invalid role filter' }, { status: 400 });
       }
-      if (payload.role !== 'admin' && roleFilterRaw !== payload.role) {
+      if (payload.role !== 'admin') {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
       roleFilter = roleFilterRaw;
     }
 
-    // If user is employee, automatically filter by their employee ID
-    if (!employeeId && payload.role === 'employee') {
+    let myEmployeeId: string | null = null;
+    if (payload.role !== 'admin') {
       const [employees]: any = await pool.execute(
-        'SELECT id FROM employees WHERE user_id = ?',
+        'SELECT id FROM employees WHERE user_id = ? LIMIT 1',
         [payload.userId]
       );
-      if (employees.length > 0) {
-        employeeId = employees[0].id.toString();
+      if (employees.length === 0) {
+        return NextResponse.json({ error: 'Employee record not found' }, { status: 404 });
       }
-    } else if (employeeId && payload.role === 'employee') {
-      const [employees]: any = await pool.execute(
-        'SELECT id FROM employees WHERE user_id = ?',
-        [payload.userId]
-      );
-      const myEmployeeId = employees.length > 0 ? employees[0].id.toString() : null;
-      if (!myEmployeeId || employeeId !== myEmployeeId) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
+      myEmployeeId = employees[0].id.toString();
+      employeeId = myEmployeeId;
+      roleFilter = null;
     }
 
     let query = `
@@ -76,9 +70,6 @@ export async function GET(request: NextRequest) {
     if (roleFilter) {
       query += ' AND u.role = ?';
       params.push(roleFilter);
-    } else if (payload.role !== 'admin') {
-      query += ' AND u.role = ?';
-      params.push(payload.role);
     }
 
     query += ' ORDER BY a.date DESC, a.check_in DESC LIMIT 100';
