@@ -89,6 +89,9 @@ export default function PayrollOfficerDashboard() {
   const [approvalResult, setApprovalResult] = useState<ApprovalSummary | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loadingPayrollId, setLoadingPayrollId] = useState<number | null>(null);
+  const [nightRequests, setNightRequests] = useState<any[]>([]);
+  const [newNight, setNewNight] = useState<{ startDate: string; endDate: string; reason: string }>({ startDate: '', endDate: '', reason: '' });
+  const [submittingNight, setSubmittingNight] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -105,6 +108,12 @@ export default function PayrollOfficerDashboard() {
           });
           if (todayRes.ok) {
             setTodayAttendance(await todayRes.json());
+          }
+          // Fetch my night shift requests
+          const nsRes = await fetch('/api/night-shift', { headers: { Authorization: `Bearer ${token}` } });
+          if (nsRes.ok) {
+            const data = await nsRes.json();
+            setNightRequests(Array.isArray(data) ? data.slice(0, 5) : []);
           }
         } catch (err) {
           // ignore
@@ -192,6 +201,40 @@ export default function PayrollOfficerDashboard() {
       alert('Failed to check out. Please try again.');
     } finally {
       setCheckingOut(false);
+    }
+  };
+
+  const submitNightShiftRequest = async () => {
+    if (!newNight.startDate || !newNight.endDate) {
+      alert('Please select start and end dates');
+      return;
+    }
+    setSubmittingNight(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('/api/night-shift', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ startDate: newNight.startDate, endDate: newNight.endDate, reason: newNight.reason }),
+      });
+      const out = await res.json();
+      if (!res.ok) {
+        alert(out?.error || 'Failed to submit');
+      } else {
+        const nsRes = await fetch('/api/night-shift', { headers: { Authorization: `Bearer ${token}` } });
+        if (nsRes.ok) {
+          const data = await nsRes.json();
+          setNightRequests(Array.isArray(data) ? data.slice(0, 5) : []);
+        }
+        setNewNight({ startDate: '', endDate: '', reason: '' });
+      }
+    } catch (e) {
+      alert('Unable to submit request');
+    } finally {
+      setSubmittingNight(false);
     }
   };
 
@@ -456,6 +499,52 @@ export default function PayrollOfficerDashboard() {
                 >
                   {checkingOut ? 'Checking Out...' : todayAttendance?.checkedOut ? 'Already Checked Out' : !todayAttendance?.checkedIn ? 'Check In First' : 'Check Out Now'}
                 </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Night Shift Request */}
+        <section className="premium-card">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-bold text-slate-900">Night Shift Request</h2>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-xs text-slate-600">Start Date</label>
+                  <input type="date" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.startDate} onChange={(e) => setNewNight((p) => ({ ...p, startDate: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-600">End Date</label>
+                  <input type="date" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.endDate} onChange={(e) => setNewNight((p) => ({ ...p, endDate: e.target.value }))} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-slate-600">Reason (optional)</label>
+                  <input type="text" placeholder="Reason" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.reason} onChange={(e) => setNewNight((p) => ({ ...p, reason: e.target.value }))} />
+                </div>
+              </div>
+              <button onClick={submitNightShiftRequest} disabled={submittingNight} className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                {submittingNight ? 'Submitting...' : 'Submit Night Shift Request'}
+              </button>
+            </div>
+            <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-800">Recent Requests</p>
+              <div className="space-y-2">
+                {nightRequests.length === 0 ? (
+                  <p className="text-xs text-slate-500">No requests yet.</p>
+                ) : (
+                  nightRequests.map((r) => (
+                    <div key={r.id} className="rounded-xl bg-white/70 p-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-slate-900">{r.start_date} → {r.end_date}</p>
+                        <span className={`badge ${r.status === 'Approved' ? 'badge-success' : r.status === 'Rejected' ? 'badge-danger' : 'badge-warning'}`}>{r.status}</span>
+                      </div>
+                      {r.reason && <p className="mt-1 text-xs text-slate-500">{r.reason}</p>}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
     }
 
     const payload = verifyToken(token);
-    if (!payload || !['admin', 'payroll_officer'].includes(payload.role)) {
+    if (!payload || payload.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

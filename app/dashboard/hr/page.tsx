@@ -34,6 +34,12 @@ export default function HRDashboardPage() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [location, setLocation] = useState<string>('');
+  const [nightRequests, setNightRequests] = useState<any[]>([]);
+  const [processingNightId, setProcessingNightId] = useState<number | null>(null);
+  const [processingNightAction, setProcessingNightAction] = useState<'approve' | 'reject' | null>(null);
+  const nightPendingCount = nightRequests.length;
+  const [attendanceRows, setAttendanceRows] = useState<any[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -51,6 +57,90 @@ export default function HRDashboardPage() {
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
+    }
+  };
+
+  const loadEmployeeAttendance = async (token: string) => {
+    try {
+      setAttendanceLoading(true);
+      const res = await fetch('/api/attendance?role=employee', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAttendanceRows(Array.isArray(data) ? data : []);
+      }
+    } catch (_) {
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  const handleNightAction = async (requestId: number, action: 'Approved' | 'Rejected') => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      return;
+    }
+
+    let rejectionReason: string | undefined;
+    if (action === 'Rejected') {
+      const input = window.prompt('Please provide a reason for rejection (optional):');
+      if (input === null) {
+        return;
+      }
+      rejectionReason = input.trim() || undefined;
+    }
+
+    setProcessingNightId(requestId);
+    setProcessingNightAction(action === 'Approved' ? 'approve' : 'reject');
+
+    try {
+      const response = await fetch('/api/night-shift', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: requestId, status: action, rejectionReason }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.error || 'Failed to update night shift request');
+        return;
+      }
+
+      await fetchPendingNightShifts(token);
+    } catch (error) {
+      console.error('Failed to update night shift request:', error);
+      alert('Failed to update night shift request. Please try again.');
+    } finally {
+      setProcessingNightId(null);
+      setProcessingNightAction(null);
+    }
+  };
+
+  const fetchPendingNightShifts = async (token: string) => {
+    try {
+      const response = await fetch('/api/night-shift?status=Pending', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const formatted = (Array.isArray(data) ? data : []).map((r: any) => ({
+          id: r.id,
+          employeeName: `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim(),
+          employeeCode: r.employee_code,
+          department: r.department,
+          startDate: r.start_date,
+          endDate: r.end_date,
+          reason: r.reason,
+          status: r.status,
+        }));
+        setNightRequests(formatted);
+      }
+    } catch (error) {
+      console.error('Failed to fetch night shift requests:', error);
     }
   };
 
@@ -217,6 +307,8 @@ export default function HRDashboardPage() {
           fetchPendingLeaves(token),
           fetchNotifications(token),
           fetchRecentEmployees(token),
+          fetchPendingNightShifts(token),
+          loadEmployeeAttendance(token),
         ]);
 
         const todayRes = await fetch('/api/attendance/today', {
@@ -356,6 +448,7 @@ export default function HRDashboardPage() {
             <h1 className="text-2xl font-black gradient-text">HR Dashboard</h1>
             <p className="text-sm text-slate-600">Human Resources Management</p>
           </div>
+
           <div className="flex items-center space-x-4">
             <div className="hidden md:flex items-center space-x-2 glass px-4 py-2 rounded-xl">
               <Search className="h-4 w-4 text-slate-400" />
@@ -365,6 +458,11 @@ export default function HRDashboardPage() {
                 className="bg-transparent border-none outline-none text-sm w-48"
               />
             </div>
+            {nightPendingCount > 0 && (
+              <div className="hidden md:flex items-center text-xs font-semibold px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200">
+                Night requests pending: {nightPendingCount}
+              </div>
+            )}
             <div className="relative">
               <motion.button
                 whileHover={{ scale: 1.1 }}
@@ -406,6 +504,14 @@ export default function HRDashboardPage() {
                 </div>
               )}
             </div>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => router.push('/dashboard/hr/profile')}
+              className="glass px-4 py-2 rounded-xl font-semibold hidden md:flex"
+            >
+              <span>Profile</span>
+            </motion.button>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -493,13 +599,77 @@ export default function HRDashboardPage() {
                 </motion.button>
               </motion.div>
 
+          {/* Night Shift Approvals */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="premium-card"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                <Clock className="h-5 w-5 text-blue-600" />
+                <span>Night Shift Requests</span>
+              </h3>
+              <span className="badge badge-warning">{nightRequests.length}</span>
+            </div>
+            <div className="space-y-3">
+              {nightRequests.map((req) => (
+                <div key={req.id} className="p-4 glass rounded-xl hover:bg-white/80 transition-all">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="font-semibold text-slate-900">{req.employeeName}</p>
+                    <span className="text-xs text-slate-500">{req.department}</span>
+                  </div>
+                  <p className="text-sm text-slate-600 mb-2">
+                    {new Date(req.startDate).toLocaleDateString()} - {new Date(req.endDate).toLocaleDateString()}
+                  </p>
+                  {req.reason && (
+                    <p className="text-xs text-slate-500 mb-3">{req.reason}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleNightAction(req.id, 'Approved')}
+                      disabled={processingNightId === req.id}
+                      className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center justify-center space-x-1"
+                    >
+                      {processingNightId === req.id && processingNightAction === 'approve' ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle className="h-4 w-4" />
+                      )}
+                      <span>Approve</span>
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleNightAction(req.id, 'Rejected')}
+                      disabled={processingNightId === req.id}
+                      className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center justify-center space-x-1"
+                    >
+                      {processingNightId === req.id && processingNightAction === 'reject' ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <XCircle className="h-4 w-4" />
+                      )}
+                      <span>Reject</span>
+                    </motion.button>
+                  </div>
+                </div>
+              ))}
+              {nightRequests.length === 0 && (
+                <p className="text-sm text-slate-500">No pending night shift requests.</p>
+              )}
+            </div>
+          </motion.div>
+
               <motion.div
                 whileHover={{ scale: 1.02 }}
                 className={`glass p-6 rounded-2xl border-2 ${
                   todayAttendance?.checkedOut ? 'border-orange-200 bg-orange-50/50' : 'border-slate-200 bg-slate-50/50'
                 }`}
               >
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-between mb-4">
                   <div className="flex items-center space-x-3">
                     <div className={`p-3 rounded-xl ${
                       todayAttendance?.checkedOut ? 'bg-orange-500' : 'bg-slate-400'
@@ -675,7 +845,6 @@ export default function HRDashboardPage() {
               ))}
             </div>
           </motion.div>
-
           {/* Password Change Requests */}
           <motion.div
             initial={{ opacity: 0, x: 20 }}
@@ -719,6 +888,70 @@ export default function HRDashboardPage() {
             </div>
           </motion.div>
         </div>
+
+        {/* Night Shift Approvals - dedicated section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="premium-card mb-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
+              <Clock className="h-5 w-5 text-blue-600" />
+              <span>Night Shift Requests</span>
+            </h3>
+            <span className="badge badge-warning">{nightPendingCount}</span>
+          </div>
+          <div className="space-y-3">
+            {nightRequests.map((req) => (
+              <div key={req.id} className="p-4 glass rounded-xl hover:bg-white/80 transition-all">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="font-semibold text-slate-900">{req.employeeName}</p>
+                  <span className="text-xs text-slate-500">{req.department}</span>
+                </div>
+                <p className="text-sm text-slate-600 mb-2">
+                  {new Date(req.startDate).toLocaleDateString()} - {new Date(req.endDate).toLocaleDateString()}
+                </p>
+                {req.reason && (
+                  <p className="text-xs text-slate-500 mb-3">{req.reason}</p>
+                )}
+                <div className="flex gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleNightAction(req.id, 'Approved')}
+                    disabled={processingNightId === req.id}
+                    className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center justify-center space-x-1"
+                  >
+                    {processingNightId === req.id && processingNightAction === 'approve' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4" />
+                    )}
+                    <span>Approve</span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleNightAction(req.id, 'Rejected')}
+                    disabled={processingNightId === req.id}
+                    className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center justify-center space-x-1"
+                  >
+                    {processingNightId === req.id && processingNightAction === 'reject' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <XCircle className="h-4 w-4" />
+                    )}
+                    <span>Reject</span>
+                  </motion.button>
+                </div>
+              </div>
+            ))}
+            {nightRequests.length === 0 && (
+              <p className="text-sm text-slate-500">No pending night shift requests.</p>
+            )}
+          </div>
+        </motion.div>
 
         {/* Recent Hires & Department Overview */}
         <div className="grid lg:grid-cols-2 gap-6">

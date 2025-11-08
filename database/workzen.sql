@@ -213,7 +213,7 @@ INSERT INTO `employee_documents` (`id`, `employee_id`, `document_type`, `documen
 --
 -- Table structure for table `holidays`
 --
-
+ 
 CREATE TABLE `holidays` (
   `id` int(11) NOT NULL,
   `name` varchar(255) NOT NULL,
