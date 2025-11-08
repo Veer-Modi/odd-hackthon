@@ -246,6 +246,11 @@ export default function EmployeeDashboardPage() {
     router.push('/login');
   };
 
+  const unreadCount = useMemo(
+    () => notifications.filter((notification) => !notification.is_read).length,
+    [notifications]
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 flex items-center justify-center">
@@ -253,11 +258,6 @@ export default function EmployeeDashboardPage() {
       </div>
     );
   }
-
-  const unreadCount = useMemo(
-    () => notifications.filter((notification) => !notification.is_read).length,
-    [notifications]
-  );
 
   const stats = {
     totalLeaves: 25,

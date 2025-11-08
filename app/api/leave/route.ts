@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
+import { sendEmail, emailTemplates } from '@/lib/email';
 
 // GET leave requests
 export async function GET(request: NextRequest) {
@@ -213,7 +214,7 @@ export async function PUT(request: NextRequest) {
       ? `Your ${requestData.leave_type_name} request from ${requestData.start_date} to ${requestData.end_date} has been approved.`
       : `Your ${requestData.leave_type_name} request from ${requestData.start_date} to ${requestData.end_date} has been rejected.${rejectionReason ? ` Reason: ${rejectionReason}` : ''}`;
 
-    await pool.execute(
+    const [notificationResult]: any = await pool.execute(
       `INSERT INTO notifications (user_id, title, message, type, action_url, created_at)
        VALUES (?, ?, ?, ?, ?, NOW())`,
       [
@@ -224,6 +225,56 @@ export async function PUT(request: NextRequest) {
         '/leave'
       ]
     );
+
+    try {
+      const [employeeUser]: any = await pool.execute(
+        'SELECT email FROM users WHERE id = ?',
+        [requestData.user_id]
+      );
+
+      if (employeeUser.length > 0 && employeeUser[0].email) {
+        const employeeName = `${requestData.first_name} ${requestData.last_name}`;
+
+        if (status === 'Approved') {
+          const emailTemplate = emailTemplates.leaveApproved(
+            employeeName,
+            requestData.leave_type_name,
+            requestData.start_date,
+            requestData.end_date,
+            requestData.total_days
+          );
+
+          await sendEmail({
+            to: employeeUser[0].email,
+            subject: emailTemplate.subject,
+            html: emailTemplate.html,
+          });
+        } else {
+          const emailTemplate = emailTemplates.leaveRejected(
+            employeeName,
+            requestData.leave_type_name,
+            requestData.start_date,
+            requestData.end_date,
+            rejectionReason || 'No reason provided'
+          );
+
+          await sendEmail({
+            to: employeeUser[0].email,
+            subject: emailTemplate.subject,
+            html: emailTemplate.html,
+          });
+        }
+
+        if (notificationResult?.insertId) {
+          await pool.execute(
+            'UPDATE notifications SET email_sent = TRUE, email_sent_at = NOW() WHERE id = ?',
+            [notificationResult.insertId]
+          );
+        }
+      }
+    } catch (emailError) {
+      console.error('Failed to send leave status email:', emailError);
+    }
 
     return NextResponse.json({ message: 'Leave request updated successfully' });
   } catch (error) {
