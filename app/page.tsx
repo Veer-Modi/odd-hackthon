@@ -30,15 +30,25 @@ export default function HomePage() {
               <h1 className="text-2xl font-bold gradient-text">WorkZen HRMS</h1>
             </motion.div>
             
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => router.push('/login')}
-              className="btn-primary flex items-center space-x-2"
-            >
-              <span>Sign In</span>
-              <ArrowRight className="h-4 w-4" />
-            </motion.button>
+            <div className="flex items-center gap-3">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => router.push('/signup')}
+                className="px-4 py-2 text-blue-600 font-semibold hover:text-blue-700 transition-colors"
+              >
+                Sign Up
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => router.push('/login')}
+                className="btn-primary flex items-center space-x-2"
+              >
+                <span>Sign In</span>
+                <ArrowRight className="h-4 w-4" />
+              </motion.button>
+            </div>
           </div>
         </div>
       </motion.header>
