@@ -794,39 +794,35 @@ export default function PayrollOfficerDashboard() {
                       </p>
                     )}
                     {selectedPayrolls.length > 0 && (
-                      <div className="space-y-2">
-                        {selectedPayrolls.slice(0, 10).map((row) => (
-                          <div
-                            key={row.id}
-                            className="rounded-xl border border-white/40 bg-white/70 p-4 text-sm"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-semibold text-slate-900">
-                                  {row.first_name} {row.last_name}
-                                </p>
-                                <p className="text-xs text-slate-500">
-                                  {row.employee_code} - {row.department ?? 'Unknown'}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-xs text-slate-500">Net Salary</p>
-                                <p className="font-semibold text-green-600">
-                                  {formatCurrency(toNumber(row.net_salary))}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-slate-500">
-                              <span>Basic: {formatCurrency(toNumber(row.basic_salary))}</span>
-                              <span>Allowances: {formatCurrency(toNumber(row.allowances))}</span>
-                              <span>Deductions: {formatCurrency(toNumber(row.deductions))}</span>
-                            </div>
-                          </div>
-                        ))}
-                        {selectedPayrolls.length > 10 && (
-                          <p className="text-[11px] text-slate-500">
-                            Showing first 10 of {selectedPayrolls.length} payroll records.
-                          </p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-slate-600">
+                              <th className="py-2 pr-3">Employee</th>
+                              <th className="py-2 pr-3">Code</th>
+                              <th className="py-2 pr-3">Department</th>
+                              <th className="py-2 pr-3 text-right">Basic</th>
+                              <th className="py-2 pr-3 text-right">Allowances</th>
+                              <th className="py-2 pr-3 text-right">Deductions</th>
+                              <th className="py-2 pr-0 text-right">Net</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedPayrolls.slice(0, 25).map((row) => (
+                              <tr key={row.id} className="border-t border-white/40 hover:bg-white/70">
+                                <td className="py-2 pr-3 font-semibold text-slate-900">{row.first_name} {row.last_name}</td>
+                                <td className="py-2 pr-3 text-slate-600">{row.employee_code}</td>
+                                <td className="py-2 pr-3 text-slate-600">{row.department ?? 'Unknown'}</td>
+                                <td className="py-2 pr-3 text-right text-slate-700">{formatCurrency(toNumber(row.basic_salary))}</td>
+                                <td className="py-2 pr-3 text-right text-slate-700">{formatCurrency(toNumber(row.allowances))}</td>
+                                <td className="py-2 pr-3 text-right text-slate-700">{formatCurrency(toNumber(row.deductions))}</td>
+                                <td className="py-2 pr-0 text-right font-semibold text-green-600">{formatCurrency(toNumber(row.net_salary))}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {selectedPayrolls.length > 25 && (
+                          <p className="mt-2 text-[11px] text-slate-500">Showing first 25 of {selectedPayrolls.length} payroll records.</p>
                         )}
                       </div>
                     )}

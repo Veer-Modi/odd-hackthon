@@ -363,9 +363,199 @@ export default function EmployeeDashboardPage() {
             <h1 className="text-2xl font-black gradient-text">Employee Dashboard</h1>
             <p className="text-sm text-slate-600">Welcome back, {profile?.first_name || user?.firstName}!</p>
           </div>
+          
 
-        {/* Reports */}
-        <div className="grid lg:grid-cols-2 gap-6 mt-6">
+        
+          <div className="flex items-center space-x-4">
+            <div className="relative">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={handleNotificationToggle}
+                className="relative p-2 glass rounded-xl hover:bg-white/50 transition-colors"
+              >
+                <Bell className="h-5 w-5 text-slate-600" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                )}
+              </motion.button>
+              {showNotifications && (
+                <div className="absolute right-0 mt-3 w-[28rem] glass rounded-2xl shadow-xl border border-white/40 max-h-[28rem] overflow-y-auto z-50">
+                  <div className="p-4 flex items-center justify-between border-b border-white/30">
+                    <h4 className="text-sm font-semibold text-slate-800">Notifications</h4>
+                    <button
+                      onClick={() => setShowNotifications(false)}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center">No notifications yet.</p>
+                    ) : (
+                      notifications.map((notification) => (
+                        <div key={notification.id} className="p-3 rounded-xl bg-white/60">
+                          <p className="text-xs font-semibold text-slate-700">{notification.title}</p>
+                          <p className="text-xs text-slate-500 mt-1">{notification.message}</p>
+                          <p className="text-[10px] text-slate-400 mt-2">
+                            {notification.created_at ? new Date(notification.created_at).toLocaleString() : ''}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleLogout}
+              className="bg-gradient-to-r from-red-500 to-red-600 text-white px-4 py-2 rounded-xl font-semibold flex items-center space-x-2"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Logout</span>
+            </motion.button>
+          </div>
+        </div>
+      </header>
+
+      <div className="p-6 max-w-7xl mx-auto">
+        
+
+        {/* Night Shift Request */}
+        <section className="premium-card mb-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-bold text-slate-900">Night Shift Request</h2>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="text-xs text-slate-600">Start Date</label>
+                  <input type="date" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.startDate} onChange={(e) => setNewNight((p) => ({ ...p, startDate: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-600">End Date</label>
+                  <input type="date" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.endDate} onChange={(e) => setNewNight((p) => ({ ...p, endDate: e.target.value }))} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-slate-600">Reason (optional)</label>
+                  <input type="text" placeholder="Reason" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.reason} onChange={(e) => setNewNight((p) => ({ ...p, reason: e.target.value }))} />
+                </div>
+              </div>
+              <button onClick={submitNightShiftRequest} disabled={submittingNight} className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                {submittingNight ? 'Submitting...' : 'Submit Night Shift Request'}
+              </button>
+            </div>
+            <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-800">Recent Requests</p>
+              <div className="space-y-2">
+                {nightRequests.length === 0 ? (
+                  <p className="text-xs text-slate-500">No requests yet.</p>
+                ) : (
+                  nightRequests.map((r) => (
+                    <div key={r.id} className="rounded-xl bg-white/70 p-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-slate-900">{r.start_date} → {r.end_date}</p>
+                        <span className={`badge ${r.status === 'Approved' ? 'badge-success' : r.status === 'Rejected' ? 'badge-danger' : 'badge-warning'}`}>{r.status}</span>
+                      </div>
+                      {r.reason && <p className="mt-1 text-xs text-slate-500">{r.reason}</p>}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Profile Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="premium-card mb-6 relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl" />
+          <div className="relative flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="bg-gradient-to-br from-blue-500 to-purple-500 p-4 rounded-2xl">
+                <User className="h-12 w-12 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">
+                  {profile?.first_name} {profile?.last_name}
+                </h2>
+                <p className="text-slate-600">{profile?.designation} • {profile?.department}</p>
+                <p className="text-sm text-slate-500">
+                  {profile?.employee_code} • Joined {profile?.join_date ? new Date(profile.join_date).toLocaleDateString() : 'N/A'}
+                </p>
+              </div>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => router.push('/dashboard/employee/profile')}
+              className="glass px-4 py-2 rounded-xl flex items-center space-x-2 hover:bg-white/80"
+            >
+              <Edit className="h-4 w-4" />
+              <span>Edit Profile</span>
+            </motion.button>
+          </div>
+        </motion.div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          <StatCard
+            icon={<Calendar className="h-6 w-6" />}
+            label="Total Leave"
+            value={stats.totalLeaves}
+            color="from-blue-500 to-blue-600"
+          />
+          <StatCard
+            icon={<CheckCircle className="h-6 w-6" />}
+            label="Available"
+            value={stats.availableLeaves}
+            color="from-green-500 to-green-600"
+          />
+          <StatCard
+            icon={<XCircle className="h-6 w-6" />}
+            label="Used"
+            value={stats.usedLeaves}
+            color="from-orange-500 to-orange-600"
+          />
+          <StatCard
+            icon={<Clock className="h-6 w-6" />}
+            label="Present Days"
+            value={stats.presentDays}
+            color="from-purple-500 to-purple-600"
+          />
+        </div>
+
+        {/* Quick Actions */}
+        <div className="grid md:grid-cols-3 gap-4 mb-6">
+          <QuickAction
+            icon={<Clock className="h-5 w-5" />}
+            label="View Attendance"
+            onClick={() => router.push('/attendance')}
+            color="from-blue-500 to-blue-600"
+          />
+          <QuickAction
+            icon={<Calendar className="h-5 w-5" />}
+            label="Apply Leave"
+            onClick={() => router.push('/leave')}
+            color="from-purple-500 to-purple-600"
+          />
+          <QuickAction
+            icon={<FileText className="h-5 w-5" />}
+            label="Documents"
+            onClick={() => {}}
+            color="from-orange-500 to-orange-600"
+          />
+        </div>
+
+        {/* Performance */}
+        <div className="grid lg:grid-cols-2 gap-6 mb-6">
           {/* Daily Report */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="premium-card">
             <div className="flex items-center justify-between mb-4">
@@ -449,7 +639,6 @@ export default function EmployeeDashboardPage() {
                     <p className="text-xl font-black text-slate-900">{monthlySummary.night_days || 0}</p>
                   </div>
                 </div>
-                {/* Simple bar visualization */}
                 <div>
                   <p className="text-xs text-slate-600 mb-2">Hours vs Target (8h/day)</p>
                   <div className="w-full bg-slate-200 rounded-full h-3">
@@ -467,63 +656,8 @@ export default function EmployeeDashboardPage() {
             )}
           </motion.div>
         </div>
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={handleNotificationToggle}
-                className="relative p-2 glass rounded-xl hover:bg-white/50 transition-colors"
-              >
-                <Bell className="h-5 w-5 text-slate-600" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                )}
-              </motion.button>
-              {showNotifications && (
-                <div className="absolute right-0 mt-3 w-72 glass rounded-2xl shadow-xl border border-white/40 max-h-80 overflow-y-auto z-50">
-                  <div className="p-4 flex items-center justify-between border-b border-white/30">
-                    <h4 className="text-sm font-semibold text-slate-800">Notifications</h4>
-                    <button
-                      onClick={() => setShowNotifications(false)}
-                      className="text-xs text-slate-500 hover:text-slate-700"
-                    >
-                      Close
-                    </button>
-                  </div>
-                  <div className="p-3 space-y-3">
-                    {notifications.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center">No notifications yet.</p>
-                    ) : (
-                      notifications.map((notification) => (
-                        <div key={notification.id} className="p-3 rounded-xl bg-white/60">
-                          <p className="text-xs font-semibold text-slate-700">{notification.title}</p>
-                          <p className="text-xs text-slate-500 mt-1">{notification.message}</p>
-                          <p className="text-[10px] text-slate-400 mt-2">
-                            {notification.created_at ? new Date(notification.created_at).toLocaleString() : ''}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleLogout}
-              className="bg-gradient-to-r from-red-500 to-red-600 text-white px-4 py-2 rounded-xl font-semibold flex items-center space-x-2"
-            >
-              <LogOut className="h-4 w-4" />
-              <span>Logout</span>
-            </motion.button>
-          </div>
-        </div>
-      </header>
 
-      <div className="p-6 max-w-7xl mx-auto">
-        {/* Check-In/Check-Out Section - Prominent */}
+        {/* Time & Attendance */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -692,136 +826,6 @@ export default function EmployeeDashboardPage() {
             </div>
           </div>
         </motion.div>
-
-        {/* Night Shift Request */}
-        <section className="premium-card mb-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-slate-900">Night Shift Request</h2>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div>
-                  <label className="text-xs text-slate-600">Start Date</label>
-                  <input type="date" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.startDate} onChange={(e) => setNewNight((p) => ({ ...p, startDate: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-600">End Date</label>
-                  <input type="date" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.endDate} onChange={(e) => setNewNight((p) => ({ ...p, endDate: e.target.value }))} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-xs text-slate-600">Reason (optional)</label>
-                  <input type="text" placeholder="Reason" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={newNight.reason} onChange={(e) => setNewNight((p) => ({ ...p, reason: e.target.value }))} />
-                </div>
-              </div>
-              <button onClick={submitNightShiftRequest} disabled={submittingNight} className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                {submittingNight ? 'Submitting...' : 'Submit Night Shift Request'}
-              </button>
-            </div>
-            <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
-              <p className="mb-3 text-sm font-semibold text-slate-800">Recent Requests</p>
-              <div className="space-y-2">
-                {nightRequests.length === 0 ? (
-                  <p className="text-xs text-slate-500">No requests yet.</p>
-                ) : (
-                  nightRequests.map((r) => (
-                    <div key={r.id} className="rounded-xl bg-white/70 p-3 text-sm">
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold text-slate-900">{r.start_date} → {r.end_date}</p>
-                        <span className={`badge ${r.status === 'Approved' ? 'badge-success' : r.status === 'Rejected' ? 'badge-danger' : 'badge-warning'}`}>{r.status}</span>
-                      </div>
-                      {r.reason && <p className="mt-1 text-xs text-slate-500">{r.reason}</p>}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Profile Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="premium-card mb-6 relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl" />
-          <div className="relative flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="bg-gradient-to-br from-blue-500 to-purple-500 p-4 rounded-2xl">
-                <User className="h-12 w-12 text-white" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">
-                  {profile?.first_name} {profile?.last_name}
-                </h2>
-                <p className="text-slate-600">{profile?.designation} • {profile?.department}</p>
-                <p className="text-sm text-slate-500">
-                  {profile?.employee_code} • Joined {profile?.join_date ? new Date(profile.join_date).toLocaleDateString() : 'N/A'}
-                </p>
-              </div>
-            </div>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => router.push('/dashboard/employee/profile')}
-              className="glass px-4 py-2 rounded-xl flex items-center space-x-2 hover:bg-white/80"
-            >
-              <Edit className="h-4 w-4" />
-              <span>Edit Profile</span>
-            </motion.button>
-          </div>
-        </motion.div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-          <StatCard
-            icon={<Calendar className="h-6 w-6" />}
-            label="Total Leave"
-            value={stats.totalLeaves}
-            color="from-blue-500 to-blue-600"
-          />
-          <StatCard
-            icon={<CheckCircle className="h-6 w-6" />}
-            label="Available"
-            value={stats.availableLeaves}
-            color="from-green-500 to-green-600"
-          />
-          <StatCard
-            icon={<XCircle className="h-6 w-6" />}
-            label="Used"
-            value={stats.usedLeaves}
-            color="from-orange-500 to-orange-600"
-          />
-          <StatCard
-            icon={<Clock className="h-6 w-6" />}
-            label="Present Days"
-            value={stats.presentDays}
-            color="from-purple-500 to-purple-600"
-          />
-        </div>
-
-        {/* Quick Actions */}
-        <div className="grid md:grid-cols-3 gap-4 mb-6">
-          <QuickAction
-            icon={<Clock className="h-5 w-5" />}
-            label="View Attendance"
-            onClick={() => router.push('/attendance')}
-            color="from-blue-500 to-blue-600"
-          />
-          <QuickAction
-            icon={<Calendar className="h-5 w-5" />}
-            label="Apply Leave"
-            onClick={() => router.push('/leave')}
-            color="from-purple-500 to-purple-600"
-          />
-          <QuickAction
-            icon={<FileText className="h-5 w-5" />}
-            label="Documents"
-            onClick={() => {}}
-            color="from-orange-500 to-orange-600"
-          />
-        </div>
 
         {/* Content Grid */}
         <div className="grid lg:grid-cols-2 gap-6">

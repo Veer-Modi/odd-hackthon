@@ -44,6 +44,13 @@ export default function HRDashboardPage() {
   const [myNightRequests, setMyNightRequests] = useState<any[]>([]);
   const [newNight, setNewNight] = useState<{ startDate: string; endDate: string; reason: string }>({ startDate: '', endDate: '', reason: '' });
   const [submittingNight, setSubmittingNight] = useState(false);
+  const [dailyReport, setDailyReport] = useState<any[]>([]);
+  const [reportMonth, setReportMonth] = useState<string>(() => {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${d.getFullYear()}-${m}`;
+  });
+  const [monthlySummary, setMonthlySummary] = useState<any | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -389,6 +396,22 @@ export default function HRDashboardPage() {
           setTodayAttendance(todayData);
         }
 
+        // Load self performance
+        try {
+          const attRes = await fetch('/api/attendance', { headers: { 'Authorization': `Bearer ${token}` } });
+          if (attRes.ok) {
+            const rows = await attRes.json();
+            setDailyReport((Array.isArray(rows) ? rows : []).slice(0, 30));
+          }
+        } catch {}
+        try {
+          const sumRes = await fetch(`/api/attendance/summary?month=${reportMonth}`, { headers: { 'Authorization': `Bearer ${token}` } });
+          if (sumRes.ok) {
+            const rows = await sumRes.json();
+            setMonthlySummary(Array.isArray(rows) && rows.length > 0 ? rows[0] : null);
+          }
+        } catch {}
+
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             (position) => {
@@ -546,7 +569,7 @@ export default function HRDashboardPage() {
                 )}
               </motion.button>
               {showNotifications && (
-                <div className="absolute right-0 mt-3 w-80 glass rounded-2xl shadow-xl border border-white/40 max-h-96 overflow-y-auto z-50">
+                <div className="absolute right-0 mt-3 w-[32rem] glass rounded-2xl shadow-xl border border-white/40 max-h-[28rem] overflow-y-auto z-50">
                   <div className="p-4 flex items-center justify-between border-b border-white/30">
                     <h4 className="text-sm font-semibold text-slate-800">Notifications</h4>
                     <button
@@ -694,70 +717,6 @@ export default function HRDashboardPage() {
                 </motion.button>
               </motion.div>
 
-          {/* Night Shift Approvals */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="premium-card"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
-                <Clock className="h-5 w-5 text-blue-600" />
-                <span>Night Shift Requests</span>
-              </h3>
-              <span className="badge badge-warning">{nightRequests.length}</span>
-            </div>
-            <div className="space-y-3">
-              {nightRequests.map((req) => (
-                <div key={req.id} className="p-4 glass rounded-xl hover:bg-white/80 transition-all">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="font-semibold text-slate-900">{req.employeeName}</p>
-                    <span className="text-xs text-slate-500">{req.department}</span>
-                  </div>
-                  <p className="text-sm text-slate-600 mb-2">
-                    {new Date(req.startDate).toLocaleDateString()} - {new Date(req.endDate).toLocaleDateString()}
-                  </p>
-                  {req.reason && (
-                    <p className="text-xs text-slate-500 mb-3">{req.reason}</p>
-                  )}
-                  <div className="flex gap-2">
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleNightAction(req.id, 'Approved')}
-                      disabled={processingNightId === req.id}
-                      className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center justify-center space-x-1"
-                    >
-                      {processingNightId === req.id && processingNightAction === 'approve' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <CheckCircle className="h-4 w-4" />
-                      )}
-                      <span>Approve</span>
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleNightAction(req.id, 'Rejected')}
-                      disabled={processingNightId === req.id}
-                      className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center justify-center space-x-1"
-                    >
-                      {processingNightId === req.id && processingNightAction === 'reject' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <XCircle className="h-4 w-4" />
-                      )}
-                      <span>Reject</span>
-                    </motion.button>
-                  </div>
-                </div>
-              ))}
-              {nightRequests.length === 0 && (
-                <p className="text-sm text-slate-500">No pending night shift requests.</p>
-              )}
-            </div>
-          </motion.div>
-
               <motion.div
                 whileHover={{ scale: 1.02 }}
                 className={`glass p-6 rounded-2xl border-2 ${
@@ -812,6 +771,121 @@ export default function HRDashboardPage() {
                 </motion.button>
               </motion.div>
             </div>
+          </div>
+        </motion.div>
+
+        {/* Performance */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="premium-card mb-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
+              <TrendingUp className="h-5 w-5 text-blue-600" />
+              <span>Performance</span>
+            </h3>
+          </div>
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* Daily Report */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="premium-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                  <Clock className="h-5 w-5 text-blue-600" />
+                  <span>Daily Report (Last 30 days)</span>
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="premium-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Shift</th>
+                      <th>Check In</th>
+                      <th>Lunch (min)</th>
+                      <th>Check Out</th>
+                      <th>Hours</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyReport.length === 0 ? (
+                      <tr><td colSpan={7} className="text-center text-sm text-slate-500">No records</td></tr>
+                    ) : (
+                      dailyReport.map((r) => (
+                        <tr key={r.id}>
+                          <td>{new Date(r.date).toLocaleDateString()}</td>
+                          <td>{r.shift_type || 'day'}</td>
+                          <td>{r.check_in || '-'}</td>
+                          <td>{r.lunch_minutes ?? 0}</td>
+                          <td>{r.check_out || '-'}</td>
+                          <td>{r.working_hours ?? 0}</td>
+                          <td>{r.status}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+
+            {/* Monthly Summary */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="premium-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                  <Calendar className="h-5 w-5 text-purple-600" />
+                  <span>Monthly Report</span>
+                </h3>
+                <input
+                  type="month"
+                  value={reportMonth}
+                  onChange={async (e) => {
+                    const v = e.target.value;
+                    setReportMonth(v);
+                    const token = localStorage.getItem('token');
+                    if (token) {
+                      const sumRes = await fetch(`/api/attendance/summary?month=${v}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                      if (sumRes.ok) {
+                        const rows = await sumRes.json();
+                        setMonthlySummary(Array.isArray(rows) && rows.length > 0 ? rows[0] : null);
+                      }
+                    }
+                  }}
+                  className="glass px-3 py-2 rounded-xl text-sm"
+                />
+              </div>
+              {monthlySummary ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="glass p-3 rounded-xl">
+                      <p className="text-xs text-slate-500">Days Worked</p>
+                      <p className="text-xl font-black text-slate-900">{monthlySummary.days_worked || 0}</p>
+                    </div>
+                    <div className="glass p-3 rounded-xl">
+                      <p className="text-xs text-slate-500">Total Hours</p>
+                      <p className="text-xl font-black text-slate-900">{Number(monthlySummary.total_hours || 0).toFixed(1)}</p>
+                    </div>
+                    <div className="glass p-3 rounded-xl">
+                      <p className="text-xs text-slate-500">Night Days</p>
+                      <p className="text-xl font-black text-slate-900">{monthlySummary.night_days || 0}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-600 mb-2">Hours vs Target (8h/day)</p>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      {(() => {
+                        const target = (monthlySummary.days_worked || 0) * 8;
+                        const hours = Number(monthlySummary.total_hours || 0);
+                        const pct = target > 0 ? Math.min(100, Math.round((hours / target) * 100)) : 0;
+                        return <div className="h-3 rounded-full bg-gradient-to-r from-blue-600 to-purple-600" style={{ width: `${pct}%` }} />;
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">No summary for selected month.</p>
+              )}
+            </motion.div>
           </div>
         </motion.div>
 
